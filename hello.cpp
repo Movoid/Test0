@@ -5,10 +5,10 @@ int main() {
 	cin >> in;
 	if (in == "hello") {
 		cout << "Hello world!";
-	}
-	cin >> in;
-	if (in == "nihao") {
-		cout << "Nihao!";
+	} else if (in == "nihao") {
+		cout << "Nihao world!";
+	} else {
+		cout << "byebye!";
 	}
 	return 0;
 }
