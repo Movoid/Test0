@@ -2,4 +2,8 @@ woooohooooooo
 huh
 test for git usage.
 changed wooooooo
+<<<<<<< HEAD
 this is changed in main branch.
+=======
+this is changed in conflictTest branch.
+>>>>>>> conflictTest
