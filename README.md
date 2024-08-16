@@ -19,23 +19,17 @@ xiaolongbao zaijian
 - The second phase  
   Hello, world.  
   ```c++
-  #pragma region includes
   #include <iostream>
   using namespace std;
-  #pragma endregion includes
 
-  #pragma region funcs
   void func() {
     cout << "hello world" << endl;
   }
-  #pragma endregion funcs
 
-  #pragma region main
   int main() {
     func();
     return 0;
   }
-  #pragma endregion main
   ```
 
 - The third phase
