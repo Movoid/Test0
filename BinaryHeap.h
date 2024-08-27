@@ -52,7 +52,7 @@ public:
     }
 
     std::vector<T>& interface() {
-        return &heap;
+        return heap;
     }
 
     void push(const T& obj) {
