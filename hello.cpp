@@ -1,15 +1,16 @@
 #include <iostream>
+#include "BinaryHeap.h"
 using namespace std;
 int main() {
-	string in{};
-	cin >> in;
-	if (in == "hello") {
-		cout << "Hello world!";
-	} else if (in == "nihao") {
-		cout << "Nihao world!";
-	} else {
-		cout << "byebye!";
+
+	BinaryHeap<int, less<int>> heap{};
+	for (int i = 1; i <= 20; i++) {
+		heap.push(i);
 	}
-	return 0;
+	for (int i = 1; i <= 20; i++) {
+		cout << heap.front() << endl;
+		heap.pop();
+	}
+
 }
 
