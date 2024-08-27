@@ -1,5 +1,6 @@
 #include <vector>
 #include <iostream>
+#include <type_traits>
 
 template<typename T, typename Comp = std::less<T>,
     typename Requires = std::void_t<decltype(T{}), decltype(Comp{}), decltype(Comp{}(std::declval<T>(), std::declval<T>())) > >
@@ -59,6 +60,7 @@ public:
         heap.push_back(obj);
         size_t cur{ heap.size() - 1 };
         while (cur > 0 && comp(heap[(cur - 1) / 2], heap[cur])) {
+            // ADL
             using std::swap;
             swap(heap[(cur - 1) / 2], heap[cur]);
             cur = (cur - 1) / 2;
