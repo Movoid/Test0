@@ -11,7 +11,7 @@ xiaolongbao zaijian
 
 2. Two  
    Good afternoon.  
-   ![gura](./gura.jpg)  
+   ![gura](./assets/gura.jpg)  
 
 3. Three  
    Good night.
