@@ -1,0 +1,6 @@
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/CMakeFiles/final_program.dir
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/CMakeFiles/edit_cache.dir
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/CMakeFiles/rebuild_cache.dir
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/lib/MyMath/CMakeFiles/MyMath.dir
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/lib/MyMath/CMakeFiles/edit_cache.dir
+/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/lib/MyMath/CMakeFiles/rebuild_cache.dir

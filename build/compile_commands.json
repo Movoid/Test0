@@ -1,0 +1,12 @@
+[
+{
+  "directory": "/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build",
+  "command": "/usr/local/bin/g++  -I/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/include -I/home/moonvoid/MyStorage/Dev/CppProjects/Learn/lib -I/home/moonvoid/MyStorage/Dev/CppProjects/Learn/lib/MyMath -I/home/moonvoid/MyStorage/Dev/CppProjects/Learn -g -std=gnu++17 -o CMakeFiles/final_program.dir/src/main.cpp.o -c /home/moonvoid/MyStorage/Dev/CppProjects/Learn/src/main.cpp",
+  "file": "/home/moonvoid/MyStorage/Dev/CppProjects/Learn/src/main.cpp"
+},
+{
+  "directory": "/home/moonvoid/MyStorage/Dev/CppProjects/Learn/build/lib/MyMath",
+  "command": "/usr/local/bin/g++  -I/home/moonvoid/MyStorage/Dev/CppProjects/Learn -g -std=gnu++17 -o CMakeFiles/MyMath.dir/mymath.cpp.o -c /home/moonvoid/MyStorage/Dev/CppProjects/Learn/lib/MyMath/mymath.cpp",
+  "file": "/home/moonvoid/MyStorage/Dev/CppProjects/Learn/lib/MyMath/mymath.cpp"
+}
+]
