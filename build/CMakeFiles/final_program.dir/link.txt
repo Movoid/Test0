@@ -1,1 +1,0 @@
-/usr/local/bin/g++ -g CMakeFiles/final_program.dir/src/main.cpp.o -o final_program  lib/MyMath/libMyMath.a 
