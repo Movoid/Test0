@@ -59,7 +59,10 @@ public:
     virtual ~FunctorAdd() = default;
 };
 
-
+// some trash
+void trash() {
+    cout << "wocao" << endl;
+}
 
 
 int main() {
