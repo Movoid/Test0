@@ -59,7 +59,7 @@ public:
     virtual ~FunctorAdd() = default;
 };
 
-
+// trash removed
 
 
 int main() {
