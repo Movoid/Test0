@@ -1,6 +1,7 @@
 #include <bits/stdc++.h>
 #include "config.h"
 #include "mymath.h"
+#include "exprparser.h"
 using namespace std;
 
 template<typename Deri>
@@ -71,5 +72,17 @@ int main() {
     // FunctorAdd<Test> b{};
     // b(Test{}, Test{});
 
+    cout << "expr parser 0.1" << endl;
+    string in{};
+    while (true) {
+        getline(cin, in);
+        if (in == "exit") break;
+        string p{ ExprParser::parse(in) };
+        cout << "parse result " << p << endl;
+        cout << "calc  result " << ExprParser::calc(p) << endl;
+    }
+
+    cout << "exited" << endl;
+    return 0;
 
 }
