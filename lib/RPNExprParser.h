@@ -18,6 +18,10 @@ namespace ExprParser {
             argCnt{ _argCnt } {
         }
         CustomFunctionWrapper(const CustomFunctionWrapper& obj) = default;
+        CustomFunctionWrapper(const CustomFunctionWrapper&& obj) :
+            func{ std::move(obj.func) },
+            argCnt{ obj.argCnt } {
+        }
         ~CustomFunctionWrapper() = default;
 
         T operator()(const std::vector<T>& args) const {
@@ -37,6 +41,10 @@ namespace ExprParser {
             priority{ _priority } {
         }
         CustomOperatorWrapper(const CustomOperatorWrapper& obj) = default;
+        CustomOperatorWrapper(const CustomOperatorWrapper&& obj) :
+            func{ std::move(obj) },
+            priority{ obj.priority } {
+        }
         CustomOperatorWrapper() = default;
 
         T operator()(const T& a, const T& b) const {
@@ -51,14 +59,13 @@ namespace ExprParser {
     template<typename T>
     using Functor = CustomFunctionWrapper<T>;
 
-    template<typename T>
+    template<typename T, typename Requires = typename std::enable_if_t<!std::is_same_v<T, void>>>
     using Operator = CustomOperatorWrapper<T>;
-
 
     template<typename T, typename Requires = typename std::void_t<decltype(T{}) > >
     class RPNExprParser {
     private:
-        using OpTable = std::unordered_map<char, std::pair<Operator<T>, int>>;
+        using OpTable = std::unordered_map<char, Operator<T>>;
         using VarTable = std::unordered_map<std::string_view, T>;
         using FuncTable = std::unordered_map<std::string_view, Functor<T>>;
 
@@ -88,9 +95,9 @@ namespace ExprParser {
         RPNExprParser(const RPNExprParser&& obj) = delete;
         ~RPNExprParser() = default;
 
-        void addOp(char name, const Operator<T>& op, int priority) {
+        void addOp(char name, const std::function<T(const T&, const T&)>& op, int priority) {
             if (ops.count(name)) throw std::runtime_error{ "[RPNExprParser] 已存在的操作符." };
-            ops.emplace(name, make_pair(op, priority));
+            ops.emplace(name, std::move(Operator<T>{op, priority}));
         }
         void addVar(std::string_view name, const T& var) {
             if (vars.count(name)) throw std::runtime_error{ "[RPNExprParser] 已存在的变量名." };
