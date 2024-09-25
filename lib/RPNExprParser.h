@@ -12,20 +12,24 @@ namespace ExprParser {
     private:
         std::function<T(const std::vector<T>&)> func{};
         size_t argCnt{};
+        bool limitedArgc{};
     public:
-        CustomFunctionWrapper(const std::function<T(const std::vector<T>&)> _func, size_t _argCnt) :
+        CustomFunctionWrapper(const std::function<T(const std::vector<T>&)> _func, size_t _argCnt = 0, bool _limitedArgc = false) :
             func{ _func },
-            argCnt{ _argCnt } {
+            argCnt{ _argCnt },
+            limitedArgc{ _limitedArgc } {
+            if (argCnt && !limitedArgc) throw std::runtime_error{ "[FunctionCall] 函数参数限制初始化错误." };
         }
         CustomFunctionWrapper(const CustomFunctionWrapper& obj) = default;
         CustomFunctionWrapper(const CustomFunctionWrapper&& obj) :
             func{ std::move(obj.func) },
-            argCnt{ obj.argCnt } {
+            argCnt{ obj.argCnt },
+            limitedArgc{ obj.limitedArgc } {
         }
         ~CustomFunctionWrapper() = default;
 
         T operator()(const std::vector<T>& args) const {
-            if (args.size() != argCnt) throw std::runtime_error{ "[FunctionCall] 无效的函数调用, 参数不匹配." };
+            if (limitedArgc && args.size() != argCnt) throw std::runtime_error{ "[FunctionCall] 无效的函数调用, 参数不匹配." };
             return func(args);
         }
     };
@@ -42,7 +46,7 @@ namespace ExprParser {
         }
         CustomOperatorWrapper(const CustomOperatorWrapper& obj) = default;
         CustomOperatorWrapper(const CustomOperatorWrapper&& obj) :
-            func{ std::move(obj) },
+            func{ std::move(obj.func) },
             priority{ obj.priority } {
         }
         CustomOperatorWrapper() = default;
@@ -103,9 +107,9 @@ namespace ExprParser {
             if (vars.count(name)) throw std::runtime_error{ "[RPNExprParser] 已存在的变量名." };
             vars.emplace(name, var);
         }
-        void addFunc(std::string_view name, const Functor<T>& func) {
-            if (funcs.count(func)) throw std::runtime_error{ "[RPNExprParser] 已存在的函数名." };
-            funcs.emplace(name, func);
+        void addFunc(std::string_view name, const Functor<T>& func, size_t argCnt = 0, bool limitedArgc = false) {
+            if (funcs.count(name)) throw std::runtime_error{ "[RPNExprParser] 已存在的函数名." };
+            funcs.emplace(name, std::move(Functor<T>{func, argCnt, limitedArgc}));
         }
         void removeOp(char name) { ops.erase(name); }
         void removeVar(std::string_view name) { vars.erase(name); }
