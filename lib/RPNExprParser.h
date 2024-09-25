@@ -80,7 +80,7 @@ namespace ExprParser {
     template<typename T, typename Requires = typename std::enable_if_t<!std::is_same_v<T, void>>>
     using Operator = CustomOperatorWrapper<T>;
 
-    template<typename T, typename Requires = typename std::void_t<decltype(T{}) > >
+    template<typename T>
     class RPNExprParser {
     private:
         using OpTable = std::unordered_map<char, Operator<T>>;
@@ -93,7 +93,8 @@ namespace ExprParser {
         VarTable vars{};
         FuncTable funcs{};
         std::string rpnExpr{};
-        T calcRes{};
+        T calcRes;
+        bool isCalced{};
 
     protected:
 
@@ -108,48 +109,6 @@ namespace ExprParser {
         }
         inline bool isOp(char c) {
             return (!isAlpha(c) && !isDigit(c) && !isDelim(c) && c != '(' && c != ')');
-        }
-
-    public:
-        RPNExprParser() {};
-        RPNExprParser(
-            std::string_view _originExpr,
-            char _delim = ' ',
-            const OpTable& _ops = {},
-            const VarTable& _vars = {},
-            const FuncTable& _funcs = {}) :
-            originExpr{ _originExpr },
-            delim{ _delim },
-            ops{ _ops },
-            vars{ _vars },
-            funcs{ _funcs } {
-        }
-        RPNExprParser(const RPNExprParser& obj) = delete;
-        RPNExprParser(const RPNExprParser&& obj) = delete;
-        ~RPNExprParser() = default;
-
-        void addOp(char name, const std::function<T(const T&, const T&)>& op, int priority) {
-            if (ops.count(name)) throw std::runtime_error{ "[Controller] 已存在的操作符." };
-            ops.emplace(name, Operator<T>{op, priority});
-        }
-        void addVar(std::string_view name, const T& var) {
-            if (vars.count(name)) throw std::runtime_error{ "[Controller] 已存在的变量名." };
-            vars.emplace(name, var);
-        }
-        void addFunc(std::string_view name, const std::function<T(const std::vector<T>&)>& func, size_t argCnt = 0, bool limitedArgc = false) {
-            if (funcs.count(name)) throw std::runtime_error{ "[Controller] 已存在的函数名." };
-            funcs.emplace(name, Functor<T>{ func, argCnt, limitedArgc });
-        }
-        void removeOp(char name) { ops.erase(name); }
-        void removeVar(std::string_view name) { vars.erase(name); }
-        void removeFunc(std::string_view name) { funcs.erase(name); }
-        void clearOp() { ops.clear(); }
-        void clearVar() { vars.clear(); }
-        void clearFuncs() { funcs.clear(); }
-        void setExpr(std::string_view _originExpr, char delim = ' ') {
-            originExpr = _originExpr;
-            rpnExpr.clear();
-            calcRes = {};
         }
 
         // 只进行字符串处理
@@ -241,6 +200,74 @@ namespace ExprParser {
             }
             return rpn;
         }
+
+        T calc() {
+            std::stack<T> numStack{};
+            std::size_t l{}, r{};
+            while (r < rpnExpr.size()) {
+
+
+
+            }
+        }
+
+    public:
+        RPNExprParser() {};
+        RPNExprParser(
+            std::string_view _originExpr,
+            char _delim = ' ',
+            const OpTable& _ops = {},
+            const VarTable& _vars = {},
+            const FuncTable& _funcs = {}) :
+            originExpr{ _originExpr },
+            delim{ _delim },
+            ops{ _ops },
+            vars{ _vars },
+            funcs{ _funcs } {
+        }
+        RPNExprParser(const RPNExprParser& obj) = delete;
+        RPNExprParser(const RPNExprParser&& obj) = delete;
+        ~RPNExprParser() = default;
+
+        void addOp(char name, const std::function<T(const T&, const T&)>& op, int priority) {
+            if (ops.count(name)) throw std::runtime_error{ "[Controller] 已存在的操作符." };
+            ops.emplace(name, Operator<T>{op, priority});
+        }
+        void addVar(std::string_view name, const T& var) {
+            if (vars.count(name)) throw std::runtime_error{ "[Controller] 已存在的变量名." };
+            vars.emplace(name, var);
+        }
+        void addFunc(std::string_view name, const std::function<T(const std::vector<T>&)>& func, size_t argCnt = 0, bool limitedArgc = false) {
+            if (funcs.count(name)) throw std::runtime_error{ "[Controller] 已存在的函数名." };
+            funcs.emplace(name, Functor<T>{ func, argCnt, limitedArgc });
+        }
+        void removeOp(char name) { ops.erase(name); }
+        void removeVar(std::string_view name) { vars.erase(name); }
+        void removeFunc(std::string_view name) { funcs.erase(name); }
+        void clearOp() { ops.clear(); }
+        void clearVar() { vars.clear(); }
+        void clearFuncs() { funcs.clear(); }
+        void setExpr(std::string_view _originExpr, char delim = ' ') {
+            originExpr = _originExpr;
+            rpnExpr.clear();
+            isCalced = false;
+        }
+
+        std::string_view parseExpr() {
+            if (rpnExpr.empty()) rpnExpr = std::move(parse(0, originExpr.size()));
+            return rpnExpr;
+        }
+
+        const T& calcExpr() {
+            if (rpnExpr.empty()) parseExpr();
+            if (!isCalced) {
+                calcRes = std::move(calc());
+                isCalced = true;
+            }
+            return calcRes;
+        }
+
+
 
 
     };

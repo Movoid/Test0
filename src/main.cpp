@@ -27,20 +27,18 @@ int main() {
     a.addOp('*', mulop, 5);
     a.addOp('/', divop, 5);
 
-    string str1{ "nihao" };
-    string_view str2{ str1 };
-    str1 = "zaijian";
-    cout << str2 << endl;
+
 
     a.addVar("aaa", 200);
-    std::string input{ "   (1 + 3 )* 2 + aaa" };
+    std::string input{ "   (1.23 + 3 )* 2 + aaa" };
     a.setExpr(input);
     try {
-        cout << a.parse(0, input.size()) << endl;
+        cout << a.parseExpr() << endl;
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
     }
+
 
 
 
