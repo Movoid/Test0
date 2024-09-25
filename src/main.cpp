@@ -34,6 +34,7 @@ int main() {
     a.setExpr(input);
     try {
         cout << a.parseExpr() << endl;
+        cout << a.calcExpr() << endl;
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

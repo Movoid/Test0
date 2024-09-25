@@ -80,7 +80,7 @@ namespace ExprParser {
     template<typename T, typename Requires = typename std::enable_if_t<!std::is_same_v<T, void>>>
     using Operator = CustomOperatorWrapper<T>;
 
-    template<typename T>
+    template<typename T, typename Requires = typename std::void_t<decltype(T(std::declval<double>())) > >
     class RPNExprParser {
     private:
         using OpTable = std::unordered_map<char, Operator<T>>;
@@ -150,23 +150,6 @@ namespace ExprParser {
                     l = r;
                     continue;
                 }
-                if (isOp(originExpr[l])) {
-                    // 一定是单个 char 的运算符
-                    ++r;
-                    if (ops.count(originExpr[l])) {
-                        while (!opStack.empty() && !(ops[opStack.top()] < ops[originExpr[l]])) {
-                            rpn += opStack.top();
-                            rpn += ' ';
-                            opStack.pop();
-                        }
-                        opStack.emplace(originExpr[l]);
-                    }
-                    else {
-                        throw std::runtime_error{ "[Parser] 表达式存在无效的操作符." };
-                    }
-                    l = r;
-                    continue;
-                }
                 if (isAlpha(originExpr[l])) {
                     while (r < end && (isDigit(originExpr[r]) || isAlpha(originExpr[r]))) {
                         ++r;
@@ -189,7 +172,23 @@ namespace ExprParser {
                     l = r;
                     continue;
                 }
-
+                if (isOp(originExpr[l])) {
+                    // 一定是单个 char 的运算符
+                    ++r;
+                    if (ops.count(originExpr[l])) {
+                        while (!opStack.empty() && !(ops[opStack.top()] < ops[originExpr[l]])) {
+                            rpn += opStack.top();
+                            rpn += ' ';
+                            opStack.pop();
+                        }
+                        opStack.emplace(originExpr[l]);
+                    }
+                    else {
+                        throw std::runtime_error{ "[Parser] 表达式存在无效的操作符." };
+                    }
+                    l = r;
+                    continue;
+                }
                 throw std::runtime_error{ "[Parser] 不合法的字符." };
             }
             while (!opStack.empty()) {
@@ -204,11 +203,57 @@ namespace ExprParser {
         T calc() {
             std::stack<T> numStack{};
             std::size_t l{}, r{};
-            while (r < rpnExpr.size()) {
-
-
-
+            std::size_t end{ rpnExpr.size() };
+            while (l < end) {
+                while (l < end && isDelim(rpnExpr[l])) ++l;
+                if (l >= end) break;
+                r = l;
+                if (isDigit(rpnExpr[l])) {
+                    // is digit
+                    while (r < end && isDigit(rpnExpr[r])) ++r;
+                    numStack.emplace(std::stod(rpnExpr.substr(l, r - l)));
+                    l = r;
+                    continue;
+                }
+                if (isAlpha(rpnExpr[l])) {
+                    while (r < end && (isDigit(rpnExpr[r]) || isAlpha(rpnExpr[r]))) {
+                        ++r;
+                    }
+                    if (r < end && rpnExpr[r] == '(') {
+                        // function
+                        throw std::runtime_error{ "NOT IMPLEMENTED." };
+                    }
+                    else {
+                        // is variant
+                        std::string_view curVarName{ rpnExpr.substr(l, r - l) };
+                        if (vars.count(curVarName)) {
+                            numStack.emplace(vars[curVarName]);
+                        }
+                        else {
+                            throw std::runtime_error{ "[Calc] RPN 存在无效的变量." };
+                        }
+                    }
+                    l = r;
+                    continue;
+                }
+                if (isOp(rpnExpr[l])) {
+                    ++r;
+                    if (ops.count(rpnExpr[l])) {
+                        if (numStack.size() < 2) throw std::runtime_error{ "[Calc] RPN 生成错误." };
+                        T opArg1{ numStack.top() }; numStack.pop();
+                        T opArg2{ numStack.top() }; numStack.pop();
+                        numStack.emplace(ops[rpnExpr[l]](opArg1, opArg2));
+                    }
+                    else {
+                        throw std::runtime_error{ "[Calc] RPN 存在无效的操作符." };
+                    }
+                    l = r;
+                    continue;
+                }
+                throw std::runtime_error{ "[Calc] RPN 存在非法字符." };
             }
+            if (numStack.size() > 1) throw std::runtime_error{ "[Calc] RPN 意外错误." };
+            return numStack.top();
         }
 
     public:
