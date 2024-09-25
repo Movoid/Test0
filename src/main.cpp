@@ -30,11 +30,10 @@ int main() {
 
 
     a.addVar("aaa", 200);
-    std::string input{ "   (1.23 + 3 )* 2 + aaa" };
+    std::string input{ " aaa*(123/975)*821+1-241.0" };
     a.setExpr(input);
     try {
-        cout << a.parseExpr() << endl;
-        cout << a.calcExpr() << endl;
+        cout << a.recursiveParseExpr() << endl;
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

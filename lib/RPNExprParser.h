@@ -112,7 +112,7 @@ namespace ExprParser {
         }
 
         // 只进行字符串处理
-        std::string parse(std::size_t beg, std::size_t end) {
+        std::string parse(std::size_t beg, std::size_t end, std::string_view originExpr) {
             std::stack<char> opStack{};
             std::string rpn{};
 
@@ -161,7 +161,7 @@ namespace ExprParser {
                     else {
                         // is variant
                         std::string_view curVarName{ originExpr.substr(l, r - l) };
-                        if (vars.count(curVarName)) {
+                        if (vars.count(curVarName) || curVarName[0] == '_') {
                             rpn += curVarName;
                             rpn += ' ';
                         }
@@ -177,6 +177,7 @@ namespace ExprParser {
                     ++r;
                     if (ops.count(originExpr[l])) {
                         while (!opStack.empty() && !(ops[opStack.top()] < ops[originExpr[l]])) {
+                            if (opStack.top() == '(') break;
                             rpn += opStack.top();
                             rpn += ' ';
                             opStack.pop();
@@ -256,6 +257,51 @@ namespace ExprParser {
             return numStack.top();
         }
 
+        std::string recursiveParse(std::string_view str, std::vector<std::string>& save) {
+            std::string newStr{};
+            std::size_t l{}, r{};
+            std::size_t end{ str.size() };
+            while (l < end) {
+                // find parens
+                while (r < end && (str[r] != '(' || (str[r] == '(' && isAlpha(str[r - 1])))) {
+                    ++r;
+                }
+                newStr += str.substr(l, r - l);
+                if (r >= end) break;
+                // find nxt paren
+                std::stack<char> parens{};
+                l = r;
+                parens.emplace(str[r]);
+                ++r;
+                while (r < end && !parens.empty()) {
+                    if (str[r] == '(') parens.emplace(str[r]);
+                    if (str[r] == ')') parens.pop();
+                    ++r;
+                }
+                if (!parens.empty()) throw std::runtime_error{ "[RecParse] 括号不匹配." };
+                std::string code{ "_" + std::to_string(save.size()) };
+                newStr += code;
+                std::string sv{ recursiveParse(str.substr(l + 1, r - l - 2), save) };
+                save.emplace_back(sv);
+                l = r;
+            }
+            newStr = std::move(parse(0, newStr.size(), newStr));
+            std::string finalStr{};
+            l = 0; r = 0;
+            while (r < newStr.size()) {
+                while (r < newStr.size() && newStr[r] != '_') ++r;
+                finalStr += newStr.substr(l, r - l);
+                if (r >= newStr.size()) break;
+                ++r;
+                l = r;
+                while (r < newStr.size() && isDigit(newStr[r])) ++r;
+                finalStr += save[std::stoi(newStr.substr(l, r - l))];
+                l = r;
+            }
+            return finalStr;
+        }
+
+
     public:
         RPNExprParser() {};
         RPNExprParser(
@@ -275,15 +321,15 @@ namespace ExprParser {
         ~RPNExprParser() = default;
 
         void addOp(char name, const std::function<T(const T&, const T&)>& op, int priority) {
-            if (ops.count(name)) throw std::runtime_error{ "[Controller] 已存在的操作符." };
+            if (ops.count(name)) throw std::runtime_error{ "[Options] 已存在的操作符." };
             ops.emplace(name, Operator<T>{op, priority});
         }
         void addVar(std::string_view name, const T& var) {
-            if (vars.count(name)) throw std::runtime_error{ "[Controller] 已存在的变量名." };
+            if (vars.count(name)) throw std::runtime_error{ "[Options] 已存在的变量名." };
             vars.emplace(name, var);
         }
         void addFunc(std::string_view name, const std::function<T(const std::vector<T>&)>& func, size_t argCnt = 0, bool limitedArgc = false) {
-            if (funcs.count(name)) throw std::runtime_error{ "[Controller] 已存在的函数名." };
+            if (funcs.count(name)) throw std::runtime_error{ "[Options] 已存在的函数名." };
             funcs.emplace(name, Functor<T>{ func, argCnt, limitedArgc });
         }
         void removeOp(char name) { ops.erase(name); }
@@ -299,7 +345,7 @@ namespace ExprParser {
         }
 
         std::string_view parseExpr() {
-            if (rpnExpr.empty()) rpnExpr = std::move(parse(0, originExpr.size()));
+            if (rpnExpr.empty()) rpnExpr = std::move(parse(0, originExpr.size(), originExpr));
             return rpnExpr;
         }
 
@@ -312,8 +358,11 @@ namespace ExprParser {
             return calcRes;
         }
 
-
-
+        std::string_view recursiveParseExpr() {
+            std::vector<std::string> save{};
+            rpnExpr = std::move(recursiveParse(originExpr, save));
+            return rpnExpr;
+        }
 
     };
 
