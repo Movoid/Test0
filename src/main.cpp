@@ -27,13 +27,16 @@ int main() {
     a.addOp('*', mulop, 5);
     a.addOp('/', divop, 5);
 
-
-
     a.addVar("aaa", 200);
-    std::string input{ " aaa*(123/975)*821+1-241.0" };
+    a.addVar("pi", 3.1415926535);
+
+    double pi{ 3.1415926535 };
+
+    std::string input{ "()" };
     a.setExpr(input);
     try {
         cout << a.recursiveParseExpr() << endl;
+        cout << setprecision(10) << a.calcExpr() << endl;
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

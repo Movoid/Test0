@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <exception>
 #include <type_traits>
+#include <stack>
+#include <functional>
 
 namespace ExprParser {
 
@@ -241,8 +243,8 @@ namespace ExprParser {
                     ++r;
                     if (ops.count(rpnExpr[l])) {
                         if (numStack.size() < 2) throw std::runtime_error{ "[Calc] RPN 生成错误." };
-                        T opArg1{ numStack.top() }; numStack.pop();
                         T opArg2{ numStack.top() }; numStack.pop();
+                        T opArg1{ numStack.top() }; numStack.pop();
                         numStack.emplace(ops[rpnExpr[l]](opArg1, opArg2));
                     }
                     else {
@@ -253,7 +255,7 @@ namespace ExprParser {
                 }
                 throw std::runtime_error{ "[Calc] RPN 存在非法字符." };
             }
-            if (numStack.size() > 1) throw std::runtime_error{ "[Calc] RPN 意外错误." };
+            if (numStack.size() != 1) throw std::runtime_error{ "[Calc] RPN 表达式不合法." };
             return numStack.top();
         }
 
@@ -295,7 +297,7 @@ namespace ExprParser {
                 ++r;
                 l = r;
                 while (r < newStr.size() && isDigit(newStr[r])) ++r;
-                finalStr += save[std::stoi(newStr.substr(l, r - l))];
+                finalStr += save[save.size() - 1 - std::stoi(newStr.substr(l, r - l))];
                 l = r;
             }
             return finalStr;
