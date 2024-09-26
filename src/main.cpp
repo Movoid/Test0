@@ -32,10 +32,10 @@ int main() {
 
     double pi{ 3.1415926535 };
 
-    std::string input{ "()" };
+    std::string input{ "aaa + add(add(1,2), 3)" };
     a.setExpr(input);
     try {
-        cout << a.recursiveParseExpr() << endl;
+        cout << a.parseExpr() << endl;
         cout << setprecision(10) << a.calcExpr() << endl;
     }
     catch (const std::exception& e) {

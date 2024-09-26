@@ -42,6 +42,8 @@ namespace ExprParser {
         }
 
         inline bool isInvalid() { return invalid; }
+        inline std::size_t getArgCnt() { return argCnt; }
+        inline bool isLimitedArgc() { return limitedArgc; }
     };
 
     template<typename T, typename Requires = typename std::enable_if_t<!std::is_same_v<T, void>>>
@@ -158,7 +160,46 @@ namespace ExprParser {
                     }
                     if (r < end && originExpr[r] == '(') {
                         // is function
-                        throw std::runtime_error{ "NOT IMPLEMENTED." };
+                        std::string_view curFuncName{ originExpr.substr(l, r - l) };
+                        if (funcs.count(curFuncName)) {
+                            // func exists
+                            std::stack<char> parens{};
+                            parens.emplace(originExpr[r]);
+                            ++r;
+                            l = r;
+                            std::size_t parsedArgCnt{};
+                            std::vector<std::string> parsedArgs{};
+                            while (!parens.empty()) {
+                                // get args
+                                while (r < end && !(originExpr[r] == ',' && parens.size() == 1)) {
+                                    if (originExpr[r] == '(') parens.emplace(originExpr[r]);
+                                    if (originExpr[r] == ')') {
+                                        if (parens.empty() || parens.top() == ')') throw std::runtime_error{ "[Parser] 括号不匹配." };
+                                        parens.pop();
+                                        if (parens.empty()) break;
+                                    }
+                                    ++r;
+                                }
+                                parsedArgs.emplace_back(std::move(parse(0, r - l, originExpr.substr(l, r - l))));
+                                ++r;
+                                l = r;
+                            }
+                            if (funcs[curFuncName].isLimitedArgc() && funcs[curFuncName].getArgCnt() != parsedArgs.size()) {
+                                throw std::runtime_error{ "[Parser] 函数调用参数数量不匹配." };
+                            }
+                            rpn += curFuncName;
+                            rpn += '(';
+                            for (auto s : parsedArgs) {
+                                rpn += s;
+                                rpn += ',';
+                            }
+                            rpn.pop_back();
+                            rpn += ')';
+                        }
+                        else {
+                            throw std::runtime_error{ "[Parser] 表达式存在无效的函数." };
+                        }
+
                     }
                     else {
                         // is variant
@@ -203,28 +244,54 @@ namespace ExprParser {
             return rpn;
         }
 
-        T calc() {
+        T calc(std::size_t beg, std::size_t end, std::string_view rpnExpr) {
             std::stack<T> numStack{};
-            std::size_t l{}, r{};
-            std::size_t end{ rpnExpr.size() };
-            while (l < end) {
-                while (l < end && isDelim(rpnExpr[l])) ++l;
-                if (l >= end) break;
+            std::size_t l{ beg }, r{ end };
+            std::size_t rpnend{ rpnExpr.size() };
+            while (l < rpnend) {
+                while (l < rpnend && isDelim(rpnExpr[l])) ++l;
+                if (l >= rpnend) break;
                 r = l;
                 if (isDigit(rpnExpr[l])) {
                     // is digit
-                    while (r < end && isDigit(rpnExpr[r])) ++r;
-                    numStack.emplace(std::stod(rpnExpr.substr(l, r - l)));
+                    while (r < rpnend && isDigit(rpnExpr[r])) ++r;
+                    std::string curNum{ rpnExpr.substr(l, r - l) };
+                    numStack.emplace(std::stod(curNum));
                     l = r;
                     continue;
                 }
                 if (isAlpha(rpnExpr[l])) {
-                    while (r < end && (isDigit(rpnExpr[r]) || isAlpha(rpnExpr[r]))) {
+                    while (r < rpnend && (isDigit(rpnExpr[r]) || isAlpha(rpnExpr[r]))) {
                         ++r;
                     }
-                    if (r < end && rpnExpr[r] == '(') {
+                    if (r < rpnend && rpnExpr[r] == '(') {
                         // function
-                        throw std::runtime_error{ "NOT IMPLEMENTED." };
+                        std::string_view curFuncName{ rpnExpr.substr(l, r - l) };
+                        if (funcs.count(curFuncName)) {
+                            std::stack<char> parens{};
+                            parens.emplace(rpnExpr[r]);
+                            ++r;
+                            l = r;
+                            std::vector<T> parsedArgVars{};
+                            while (!parens.empty()) {
+                                while (r < rpnend && !(rpnExpr[r] == ',' && parens.size() == 1)) {
+                                    if (rpnExpr[r] == '(') parens.emplace(rpnExpr[r]);
+                                    if (rpnExpr[r] == ')') {
+                                        if (parens.empty() || parens.top() == ')') throw std::runtime_error{ "[Calc] 括号不匹配." };
+                                        parens.pop();
+                                        if (parens.empty()) break;
+                                    }
+                                    ++r;
+                                }
+                                parsedArgVars.emplace_back(std::move(calc(0, r - l, rpnExpr.substr(l, r - l))));
+                                ++r;
+                                l = r;
+                            }
+                            numStack.emplace(funcs[curFuncName](parsedArgVars));
+                        }
+                        else {
+                            throw std::runtime_error{ "[Calc] RPN 存在无效的函数." };
+                        }
                     }
                     else {
                         // is variant
@@ -259,6 +326,7 @@ namespace ExprParser {
             return numStack.top();
         }
 
+        // test only
         std::string recursiveParse(std::string_view str, std::vector<std::string>& save) {
             std::string newStr{};
             std::size_t l{}, r{};
@@ -289,14 +357,15 @@ namespace ExprParser {
             }
             newStr = std::move(parse(0, newStr.size(), newStr));
             std::string finalStr{};
+            std::size_t nend{ newStr.size() };
             l = 0; r = 0;
-            while (r < newStr.size()) {
-                while (r < newStr.size() && newStr[r] != '_') ++r;
+            while (r < nend) {
+                while (r < nend && newStr[r] != '_') ++r;
                 finalStr += newStr.substr(l, r - l);
-                if (r >= newStr.size()) break;
+                if (r >= nend) break;
                 ++r;
                 l = r;
-                while (r < newStr.size() && isDigit(newStr[r])) ++r;
+                while (r < nend && isDigit(newStr[r])) ++r;
                 finalStr += save[save.size() - 1 - std::stoi(newStr.substr(l, r - l))];
                 l = r;
             }
@@ -354,7 +423,7 @@ namespace ExprParser {
         const T& calcExpr() {
             if (rpnExpr.empty()) parseExpr();
             if (!isCalced) {
-                calcRes = std::move(calc());
+                calcRes = std::move(calc(0, rpnExpr.size(), rpnExpr));
                 isCalced = true;
             }
             return calcRes;

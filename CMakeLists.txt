@@ -15,4 +15,4 @@ target_include_directories(final_program PUBLIC "${PROJECT_BINARY_DIR}/include"
 
 add_subdirectory(./lib/test)
 
-target_link_libraries(final_program PUBLIC MyMath)
+target_link_libraries(final_program PUBLIC test)
