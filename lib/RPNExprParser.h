@@ -322,8 +322,8 @@ namespace ExprParser {
                 }
                 throw std::runtime_error{ "[Calc] RPN 存在非法字符." };
             }
-            if (numStack.size() != 1) throw std::runtime_error{ "[Calc] RPN 表达式不合法." };
-            return numStack.top();
+            if (numStack.size() > 1) throw std::runtime_error{ "[Calc] RPN 表达式不合法." };
+            return numStack.empty() ? 0 : numStack.top();
         }
 
         // test only

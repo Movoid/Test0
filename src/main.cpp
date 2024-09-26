@@ -1,26 +1,29 @@
 #include <bits/stdc++.h>
 #include "RPNExprParser.h"
 
-
-
 int main() {
 
-    auto sum{ [](const std::vector<double>& args) {
+    auto sum{ [](const std::vector<double>& args)->double {
         double sum{};
         for (auto a : args) sum += a;
         return sum;
     } };
 
-    auto max{ [](const std::vector<double>& args) {
+    auto max{ [](const std::vector<double>& args)->double {
         double ret{args[0]};
         for (auto a : args) ret = std::max(ret, a);
         return ret;
     } };
 
-    auto min{ [](const std::vector<double>& args) {
+    auto min{ [](const std::vector<double>& args)->double {
         double ret{args[0]};
         for (auto a : args) ret = std::min(ret, a);
         return ret;
+    } };
+
+    auto hello{ [](const std::vector<double>& args)->double {
+        std::cout << "\nHello, RPNExprParser!" << std::endl;
+        return 0;
     } };
 
     auto addop{ [](double a, double b)->double {return a + b; } };
@@ -40,15 +43,26 @@ int main() {
     a.addFunc("sum", sum);
     a.addFunc("max", max);
     a.addFunc("min", min);
+    a.addFunc("hello_world", hello);
 
-    std::string input{ "max(sum(1,2,3,4.4) * 5, 60, 70^2)" };
-    a.setExpr(input);
-    try {
-        std::cout << a.parseExpr() << std::endl;
-        std::cout << std::setprecision(10) << a.calcExpr() << std::endl;
-    }
-    catch (const std::exception& e) {
-        std::cerr << e.what() << '\n';
+    a.addVar("pi", 3.1415926535);
+    a.addVar("e", 2.718);
+
+    std::string in{};
+    while (true) {
+        std::cout << "Expr: ";
+        std::getline(std::cin, in);
+        if (in == "exit") break;
+        a.setExpr(in);
+        try {
+            std::cout << "RPNExpr: " << a.parseExpr() << std::endl;
+            std::cout << "CalcRes: " << a.calcExpr() << std::endl;
+        }
+        catch (const std::exception& e) {
+            std::cout << e.what() << '\n';
+        }
+        std::cout << '\n';
     }
 
+    return 0;
 }
