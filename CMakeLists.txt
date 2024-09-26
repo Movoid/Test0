@@ -11,8 +11,8 @@ add_executable(final_program ./src/main.cpp)
 
 target_include_directories(final_program PUBLIC "${PROJECT_BINARY_DIR}/include"
     "${PROJECT_SOURCE_DIR}/lib"
-    "${PROJECT_SOURCE_DIR}/lib/MyMath")
+    "${PROJECT_SOURCE_DIR}/lib/test")
 
-add_subdirectory(./lib/MyMath)
+add_subdirectory(./lib/test)
 
 target_link_libraries(final_program PUBLIC MyMath)
