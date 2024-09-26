@@ -360,7 +360,7 @@ namespace ExprParser {
             std::size_t nend{ newStr.size() };
             l = 0; r = 0;
             while (r < nend) {
-                while (r < nend && newStr[r] != '_') ++r;
+                while (r < nend && !(r < nend - 1 && newStr[r] == '_' && isDigit(newStr[r + 1]))) ++r;
                 finalStr += newStr.substr(l, r - l);
                 if (r >= nend) break;
                 ++r;

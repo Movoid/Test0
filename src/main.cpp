@@ -26,37 +26,42 @@ int main() {
         return 0;
     } };
 
+    auto exit{ [](const std::vector<double>& args)->double {
+        std::exit(0);
+        return 0;
+    } };
+
     auto addop{ [](double a, double b)->double {return a + b; } };
     auto subop{ [](double a, double b)->double {return a - b; } };
     auto mulop{ [](double a, double b)->double {return a * b; } };
     auto divop{ [](double a, double b)->double {return a / b; } };
     auto powop{ [](double a, double b)->double {return std::pow(a,b); } };
 
-    ExprParser::RPNExprParser<double> a{};
+    ExprParser::RPNExprParser<double> parser{};
 
-    a.addOp('+', addop, 1);
-    a.addOp('-', subop, 1);
-    a.addOp('*', mulop, 5);
-    a.addOp('/', divop, 5);
-    a.addOp('^', powop, 10);
+    parser.addOp('+', addop, 1);
+    parser.addOp('-', subop, 1);
+    parser.addOp('*', mulop, 5);
+    parser.addOp('/', divop, 5);
+    parser.addOp('^', powop, 10);
 
-    a.addFunc("sum", sum);
-    a.addFunc("max", max);
-    a.addFunc("min", min);
-    a.addFunc("hello_world", hello);
+    parser.addFunc("sum", sum);
+    parser.addFunc("max", max);
+    parser.addFunc("min", min);
+    parser.addFunc("hello_world", hello);
+    parser.addFunc("exit", exit);
 
-    a.addVar("pi", 3.1415926535);
-    a.addVar("e", 2.718);
+    parser.addVar("pi", 3.1415926535);
+    parser.addVar("e", 2.718);
 
     std::string in{};
     while (true) {
         std::cout << "Expr: ";
         std::getline(std::cin, in);
-        if (in == "exit") break;
-        a.setExpr(in);
+        parser.setExpr(in);
         try {
-            std::cout << "RPNExpr: " << a.parseExpr() << std::endl;
-            std::cout << "CalcRes: " << a.calcExpr() << std::endl;
+            std::cout << "RPNExpr: " << parser.recursiveParseExpr() << std::endl;
+            std::cout << "CalcRes: " << parser.calcExpr() << std::endl;
         }
         catch (const std::exception& e) {
             std::cout << e.what() << '\n';
