@@ -60,7 +60,7 @@ int main() {
         std::getline(std::cin, in);
         parser.setExpr(in);
         try {
-            std::cout << "RPNExpr: " << parser.recursiveParseExpr() << std::endl;
+            std::cout << "RPNExpr: " << parser.parseExpr() << std::endl;
             std::cout << "CalcRes: " << parser.calcExpr() << std::endl;
         }
         catch (const std::exception& e) {

@@ -430,6 +430,12 @@ namespace ExprParser {
         }
 
         std::string_view recursiveParseExpr() {
+            if (originExpr.empty()) return "";
+            for (int i = 0; i < originExpr.size() - 1; i++) {
+                if (originExpr[i] == '_' && isDigit(originExpr[i + 1])) {
+                    throw std::runtime_error{ "[RecParser] 禁止使用保留名 _<Number> ." };
+                }
+            }
             std::vector<std::string> save{};
             rpnExpr = std::move(recursiveParse(originExpr, save));
             return rpnExpr;
