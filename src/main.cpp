@@ -4,6 +4,8 @@
 
 int main() {
 
+  std::cout << "main()" << std::endl;
+
   auto sum{[](const std::vector<double> &args) -> double {
     double sum{};
     for (auto a : args)
