@@ -3,3 +3,4 @@ build/
 
 # my ide
 .vscode/
+.cache/
