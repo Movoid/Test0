@@ -282,6 +282,7 @@ void *mm_malloc(std::size_t usr_size) {
     place(bp, real_size);
     return bp;
   }
+  extendsize = max(usr_size, CHUNKSIZE);
   if ((bp = reinterpret_cast<char *>(extend_heap(extendsize / WSIZE))) == nullptr) {
     return nullptr;
   }
