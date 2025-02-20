@@ -4,10 +4,6 @@
 #include <sys/mman.h>
 #include <type_traits>
 
-// extern int mm_init(void)
-// extern void *mm_malloc(size_t size);
-// extern void mm_free(void* ptr)
-
 // chunk 16 bytes alignment
 
 static char *mem_heap;
@@ -86,7 +82,7 @@ static inline auto get_prev_blkptr(const A &block_ptr) -> std::uintptr_t * {
   mem_init - init the mem system model.
 
 \*====================================*/
-void mem_init(void) {
+static void mem_init(void) {
   mem_heap = reinterpret_cast<char *>(mmap(nullptr, MAX_HEAP, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0));
   mem_brk = mem_heap;
   mem_max_addr = mem_heap + MAX_HEAP;
@@ -119,6 +115,7 @@ static char *heap_listp;
 \*====================================*/
 static void *coalesce(void *bp) {
   // bool
+
   std::size_t prev_alloc{get_alloc(get_ftr_ptr(get_prev_blkptr(bp)))};
   std::size_t next_alloc{get_alloc(get_hdr_ptr(get_next_blkptr(bp)))};
   std::size_t size{get_size(get_hdr_ptr(bp))};
@@ -191,7 +188,9 @@ static void *extend_heap(std::size_t wordcnt) {
   mm_init - create init free chunk list
 
 \*====================================*/
-int mm_init(void) {
+static int mm_init(void) {
+
+  mem_init();
   // get 4 * WSIZE to init the heap memory model.
   if ((heap_listp = reinterpret_cast<char *>(mem_sbrk(4 * WSIZE))) == reinterpret_cast<void *>(-1)) {
     return -1;
@@ -266,10 +265,11 @@ static void place(void *bp, std::size_t asize) {
 
 \*====================================*/
 void *mm_malloc(std::size_t usr_size) {
+
   size_t real_size{};  // header + block
   size_t extendsize{}; // if free blocks is not enough, then extend_heap
   char *bp{};
-
+  if (!mem_heap) mm_init();
   if (usr_size == 0) return nullptr;
   if (usr_size <= DSIZE) {
     real_size = 2 * DSIZE;

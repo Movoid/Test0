@@ -8,7 +8,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED true)
 
 configure_file(./include/config.h.in ./include/config.h)
 
-add_executable(final_program ./src/main.cpp)
+add_executable(final_program 
+    "./src/main.cpp"
+    "./src/mm_malloc_v1.cpp"    
+)
 
 target_include_directories(final_program PUBLIC "${PROJECT_BINARY_DIR}/include"
     "${PROJECT_SOURCE_DIR}/lib"
