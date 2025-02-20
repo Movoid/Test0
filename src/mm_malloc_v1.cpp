@@ -1,3 +1,14 @@
+/*====================================*\
+
+  mm_malloc lib.
+  2025-02-20
+  CSAPP Implemention in Cpp.
+
+  ** brk pointer is not used.
+  all chunks are allocated with `mmap()`.
+
+\*====================================*/
+
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -44,12 +55,23 @@ static inline auto put(const A &ptr, const B &val) -> void {
 // 16 bytes 对齐
 template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_size(const A &chunk_ptr) -> std::uintptr_t {
-  return get(chunk_ptr) & ~((1ULL << 4) - 1);
+  return get(chunk_ptr) & ~((1ULL << 3) - 1);
+}
+
+// A M P flags
+template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+static inline auto get_alloc(const A &chunk_ptr) -> std::uintptr_t {
+  return get(chunk_ptr) & (1ULL << 0);
 }
 
 template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
-static inline auto get_alloc(const A &chunk_ptr) -> std::uintptr_t {
-  return get(chunk_ptr) & 0x1;
+static inline auto get_mmaped(const A &chunk_ptr) -> std::uintptr_t {
+  return get(chunk_ptr) & (1ULL << 1);
+}
+
+template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+static inline auto get_prev_inuse(const A &chunk_ptr) -> std::uintptr_t {
+  return get(chunk_ptr) & (1ULL << 2);
 }
 
 template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
@@ -272,10 +294,12 @@ void *mm_malloc(std::size_t usr_size) {
   if (!mem_heap) mm_init();
   if (usr_size == 0) return nullptr;
   if (usr_size <= DSIZE) {
+    // at least DSIZE
     real_size = 2 * DSIZE;
   } else {
-    // calc ceil.
-    // the min val to n*(2*DSIZE) .
+    // `mchunk_prev_size` can be covered by user data.
+    // real_size = HEADER + usr_size,
+    // the footer is included in usr_size.
     real_size = DSIZE * (usr_size + DSIZE + DSIZE - 1) / DSIZE;
   }
   if ((bp = reinterpret_cast<char *>(find_fit(real_size))) != nullptr) {
