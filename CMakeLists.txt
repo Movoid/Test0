@@ -1,22 +1,22 @@
 cmake_minimum_required(VERSION 3.12)
 
 project(ProjCMK VERSION 0.1.2 DESCRIPTION "this is test desc." LANGUAGES CXX)
-# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-configure_file(./include/config.h.in ./include/config.h)
+add_subdirectory(./lib)
 
-add_executable(final_program 
-    "./src/main.cpp"
-    "./src/mm_malloc_v1.cpp"    
+file(GLOB_RECURSE caonima_SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
+add_executable(wocao ${caonima_SOURCES})
+
+file(GLOB_RECURSE caonima_HEADERS 
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/lib
 )
 
-target_include_directories(final_program PUBLIC "${PROJECT_BINARY_DIR}/include"
-    "${PROJECT_SOURCE_DIR}/lib"
-    "${PROJECT_SOURCE_DIR}/lib/test")
+target_link_libraries(wocao PRIVATE test)
+target_include_directories(wocao PRIVATE ${CMAKE_SOURCE_DIR}/lib)
 
-add_subdirectory(./lib/test)
-
-target_link_libraries(final_program PUBLIC test)
+configure_file(${CMAKE_SOURCE_DIR}/include/config.h.in ${CMAKE_BINARY_DIR}/include/config.h)
