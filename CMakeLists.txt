@@ -1,22 +1,20 @@
-cmake_minimum_required(VERSION 3.12)
-
-project(ProjCMK VERSION 0.1.2 DESCRIPTION "this is test desc." LANGUAGES CXX)
-# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+cmake_minimum_required(VERSION 3.20)
+project(Test0 VERSION 0.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED true)
+set(CMAKE_CXX_STANDARD_REQUIRED ON) 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) 
 
-configure_file(./include/config.h.in ./include/config.h)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib)
 
-add_executable(final_program 
-    "./src/main.cpp"
-    "./src/mm_malloc_v1.cpp"    
-)
+file(GLOB_RECURSE test0_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+add_executable(test0 ${test0_SOURCES})
 
-target_include_directories(final_program PUBLIC "${PROJECT_BINARY_DIR}/include"
-    "${PROJECT_SOURCE_DIR}/lib"
-    "${PROJECT_SOURCE_DIR}/lib/test")
 
-add_subdirectory(./lib/test)
+target_link_libraries(test0 PRIVATE rpnparser)
+target_link_libraries(test0 PRIVATE mm_malloc)
+target_link_libraries(test0 PRIVATE wcnm)
 
-target_link_libraries(final_program PUBLIC test)
+# cmake_policy(SET CMP0167 NEW)
+# find_package(Boost REQUIRED)
+# target_link_libraries(test0 PRIVATE Boost::boost)

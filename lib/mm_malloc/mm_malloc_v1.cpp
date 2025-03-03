@@ -15,6 +15,8 @@
 #include <sys/mman.h>
 #include <type_traits>
 
+#include "mm_malloc_v1.h"
+
 // chunk 16 bytes alignment
 
 static char *mem_heap;
@@ -29,74 +31,95 @@ enum : std::size_t {
   ALIGNMENT = DSIZE,
 };
 
-template<typename A, typename B, typename std::void_t<decltype(std::declval<A>() > std::declval<B>())> *Req = nullptr>
+template <typename A, typename B,
+          typename std::void_t<decltype(std::declval<A>() > std::declval<B>())>
+              *Req = nullptr>
 static inline auto max(const A &a, const B &b) -> std::common_type_t<A, B> {
   return a > b ? a : b;
 }
 
-template<typename A, typename B,
-         typename std::enable_if_t<std::is_convertible_v<A, std::uintptr_t> && std::is_convertible_v<B, std::uintptr_t>>
-             *Req = nullptr>
-static inline auto pack(const A &val1, const B &val2) -> std::common_type_t<A, B> {
+template <typename A, typename B,
+          typename std::enable_if_t<std::is_convertible_v<A, std::uintptr_t> &&
+                                    std::is_convertible_v<B, std::uintptr_t>>
+              *Req = nullptr>
+static inline auto pack(const A &val1, const B &val2)
+    -> std::common_type_t<A, B> {
   return val1 | val2;
 }
 
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get(const A &a) -> std::uintptr_t {
   return *reinterpret_cast<std::uintptr_t *>(a);
 }
 
-template<typename A, typename B,
-         typename std::enable_if_t<std::is_pointer_v<A> && std::is_convertible_v<B, std::uintptr_t>> *Req = nullptr>
+template <typename A, typename B,
+          typename std::enable_if_t<std::is_pointer_v<A> &&
+                                    std::is_convertible_v<B, std::uintptr_t>>
+              *Req = nullptr>
 static inline auto put(const A &ptr, const B &val) -> void {
   *reinterpret_cast<std::uintptr_t *>(ptr) = val;
 }
 
 // 16 bytes 对齐
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_size(const A &chunk_ptr) -> std::uintptr_t {
   return get(chunk_ptr) & ~((1ULL << 3) - 1);
 }
 
 // A M P flags
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_alloc(const A &chunk_ptr) -> std::uintptr_t {
   return get(chunk_ptr) & (1ULL << 0);
 }
 
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_mmaped(const A &chunk_ptr) -> std::uintptr_t {
   return get(chunk_ptr) & (1ULL << 1);
 }
 
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_prev_inuse(const A &chunk_ptr) -> std::uintptr_t {
   return get(chunk_ptr) & (1ULL << 2);
 }
 
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_hdr_ptr(const A &block_ptr) -> std::uintptr_t * {
-  return reinterpret_cast<std::uintptr_t *>(reinterpret_cast<char *>(block_ptr) - WSIZE);
+  return reinterpret_cast<std::uintptr_t *>(
+      reinterpret_cast<char *>(block_ptr) - WSIZE);
 }
 
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_ftr_ptr(const A &block_ptr) -> std::uintptr_t * {
-  return reinterpret_cast<std::uintptr_t *>(reinterpret_cast<char *>(block_ptr) + get_size(get_hdr_ptr(block_ptr)) -
-                                            DSIZE);
+  return reinterpret_cast<std::uintptr_t *>(
+      reinterpret_cast<char *>(block_ptr) + get_size(get_hdr_ptr(block_ptr)) -
+      DSIZE);
 }
 
 // next block in the higher addr
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_next_blkptr(const A &block_ptr) -> std::uintptr_t * {
-  return reinterpret_cast<std::uintptr_t *>(reinterpret_cast<char *>(block_ptr) +
-                                            get_size(reinterpret_cast<char *>(block_ptr) - WSIZE)); // get_size(header)
+  return reinterpret_cast<std::uintptr_t *>(
+      reinterpret_cast<char *>(block_ptr) +
+      get_size(reinterpret_cast<char *>(block_ptr) -
+               WSIZE)); // get_size(header)
 }
 
 // prev block in the lower addr
-template<typename A, typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
+template <typename A,
+          typename std::enable_if_t<std::is_pointer_v<A>> *Req = nullptr>
 static inline auto get_prev_blkptr(const A &block_ptr) -> std::uintptr_t * {
-  return reinterpret_cast<std::uintptr_t *>(reinterpret_cast<char *>(block_ptr) -
-                                            get_size(reinterpret_cast<char *>(block_ptr) - DSIZE)); // get_size(footer)
+  return reinterpret_cast<std::uintptr_t *>(
+      reinterpret_cast<char *>(block_ptr) -
+      get_size(reinterpret_cast<char *>(block_ptr) -
+               DSIZE)); // get_size(footer)
 }
 
 /*====================================*\
@@ -105,7 +128,9 @@ static inline auto get_prev_blkptr(const A &block_ptr) -> std::uintptr_t * {
 
 \*====================================*/
 static void mem_init(void) {
-  mem_heap = reinterpret_cast<char *>(mmap(nullptr, MAX_HEAP, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0));
+  mem_heap =
+      reinterpret_cast<char *>(mmap(nullptr, MAX_HEAP, PROT_WRITE | PROT_READ,
+                                    MAP_PRIVATE | MAP_ANON, -1, 0));
   mem_brk = mem_heap;
   mem_max_addr = mem_heap + MAX_HEAP;
 }
@@ -158,7 +183,8 @@ static void *coalesce(void *bp) {
     bp = get_prev_blkptr(bp);
   } else {
     // combine two
-    size += get_size(get_hdr_ptr(get_prev_blkptr(bp))) + get_size(get_ftr_ptr(get_next_blkptr(bp)));
+    size += get_size(get_hdr_ptr(get_prev_blkptr(bp))) +
+            get_size(get_ftr_ptr(get_next_blkptr(bp)));
     put(get_hdr_ptr(get_prev_blkptr(bp)), pack(size, 0));
     put(get_hdr_ptr(get_next_blkptr(bp)), pack(size, 0));
     bp = get_prev_blkptr(bp);
@@ -192,7 +218,8 @@ static void *extend_heap(std::size_t wordcnt) {
 
   size = (wordcnt % 2) ? (wordcnt + 1) * WSIZE : wordcnt * WSIZE;
   // get bp, the start addr of new heap memory from kernel.
-  if ((bp = reinterpret_cast<char *>(mem_sbrk(size))) == reinterpret_cast<void *>(-1)) {
+  if ((bp = reinterpret_cast<char *>(mem_sbrk(size))) ==
+      reinterpret_cast<void *>(-1)) {
     return nullptr;
   }
 
@@ -214,7 +241,8 @@ static int mm_init(void) {
 
   mem_init();
   // get 4 * WSIZE to init the heap memory model.
-  if ((heap_listp = reinterpret_cast<char *>(mem_sbrk(4 * WSIZE))) == reinterpret_cast<void *>(-1)) {
+  if ((heap_listp = reinterpret_cast<char *>(mem_sbrk(4 * WSIZE))) ==
+      reinterpret_cast<void *>(-1)) {
     return -1;
   }
 
@@ -235,9 +263,7 @@ static int mm_init(void) {
   //                      ^ heap_listp
 
   // extend to get the first chunk
-  if (extend_heap(CHUNKSIZE / WSIZE) == nullptr) {
-    return -1;
-  }
+  if (extend_heap(CHUNKSIZE / WSIZE) == nullptr) { return -1; }
   return 0;
 }
 
@@ -250,7 +276,8 @@ static int mm_init(void) {
 static void *find_fit(std::size_t real_size) {
   char *bp{heap_listp};
 
-  for (bp = heap_listp; get_size(get_hdr_ptr(bp)); bp = reinterpret_cast<char *>(get_next_blkptr(bp))) {
+  for (bp = heap_listp; get_size(get_hdr_ptr(bp));
+       bp = reinterpret_cast<char *>(get_next_blkptr(bp))) {
     if (!get_alloc(get_hdr_ptr(bp)) && get_size(get_hdr_ptr(bp)) >= real_size) {
       return bp;
     }
@@ -307,7 +334,8 @@ void *mm_malloc(std::size_t usr_size) {
     return bp;
   }
   extendsize = max(usr_size, CHUNKSIZE);
-  if ((bp = reinterpret_cast<char *>(extend_heap(extendsize / WSIZE))) == nullptr) {
+  if ((bp = reinterpret_cast<char *>(extend_heap(extendsize / WSIZE))) ==
+      nullptr) {
     return nullptr;
   }
   // then place to bp extended.

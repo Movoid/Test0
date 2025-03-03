@@ -1,9 +1,13 @@
 #include "RPNExprParser.h"
-#include <bits/stdc++.h>
+#include "Wcnm/wc.h"
+#include "mm_malloc_v1.h"
+#include <cmath>
+#include <iostream>
 #include <vector>
 
 int main() {
 
+  wc();
   std::cout << "main()" << std::endl;
 
   auto sum{[](const std::vector<double> &args) -> double {
