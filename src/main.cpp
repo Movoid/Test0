@@ -11,19 +11,11 @@ int main() {
   std::cout << "main()" << std::endl;
 
   auto sum{[](const std::vector<double> &args) -> double {
-<<<<<<< HEAD
-    double res{};
-    std::cout << "main" << std::endl;
-    for (auto a : args)
-      res += a;
-    return res;
-=======
     double sum{};
-    std::cout << "test" << std::endl;
+    std::cout << "this is main fuck" << std::endl;
     for (auto a : args)
       sum += a;
     return sum;
->>>>>>> test
   }};
 
   auto max{[](const std::vector<double> &args) -> double {
