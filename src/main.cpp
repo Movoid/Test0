@@ -6,12 +6,13 @@ int main() {
 
   std::cout << "main()" << std::endl;
 
-  // auto sum{[](const std::vector<double> &args) -> double {
-  //   double sum{};
-  //   for (auto a : args)
-  //     sum += a;
-  //   return sum;
-  // }};
+  auto sum{[](const std::vector<double> &args) -> double {
+    double sum{};
+    std::cout << "test" << std::endl;
+    for (auto a : args)
+      sum += a;
+    return sum;
+  }};
 
   auto max{[](const std::vector<double> &args) -> double {
     double ret{args[0]};
