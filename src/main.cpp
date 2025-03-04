@@ -14,6 +14,9 @@ int main() {
     double sum{};
     std::cout << "test1" << std::endl;
     std::cout << "test1" << std::endl;
+    std::cout << "test1" << std::endl;
+    std::cout << "test1" << std::endl;
+    std::cout << "test1" << std::endl;
     for (auto a : args)
       sum += a;
     return sum;
