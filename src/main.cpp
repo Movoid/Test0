@@ -12,7 +12,7 @@ int main() {
 
   auto sum{[](const std::vector<double> &args) -> double {
     double sum{};
-    std::cout << "main branch edited" << std::endl;
+    std::cout << "test2" << std::endl;
     for (auto a : args)
       sum += a;
     return sum;
