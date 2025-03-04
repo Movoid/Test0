@@ -12,12 +12,8 @@ int main() {
 
   auto sum{[](const std::vector<double> &args) -> double {
     double sum{};
-<<<<<<< .merge_file_WYNhp5
     std::cout << "test1" << std::endl;
     std::cout << "test1" << std::endl;
-=======
-    std::cout << "test2" << std::endl;
->>>>>>> .merge_file_9ROJc3
     for (auto a : args)
       sum += a;
     return sum;
