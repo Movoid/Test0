@@ -12,7 +12,8 @@ int main() {
 
   auto sum{[](const std::vector<double> &args) -> double {
     double sum{};
-    std::cout << "test2" << std::endl;
+    std::cout << "this is also some fucking good feature in test2" << std::endl;
+    std::cout << "just merge to main" << std::endl;
     for (auto a : args)
       sum += a;
     return sum;
