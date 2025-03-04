@@ -16,6 +16,7 @@ int main() {
     for (auto a : args)
       sum += a;
     return sum;
+    aegwrophigyji34erhg
   }};
 
   auto max{[](const std::vector<double> &args) -> double {
