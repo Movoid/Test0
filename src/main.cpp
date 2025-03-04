@@ -14,6 +14,8 @@ int main() {
     double sum{};
     std::cout << "this is a fucking good test1 new feature" << std::endl;
     std::cout << "which is also fucking good to be merged to main" << std::endl;
+    std::cout << "this is also some fucking good feature in test2" << std::endl;
+    std::cout << "just merge to main" << std::endl;
     for (auto a : args)
       sum += a;
     return sum;
