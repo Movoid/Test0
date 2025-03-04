@@ -17,3 +17,6 @@ target_link_libraries(test0 PRIVATE wcnm)
 # cmake_policy(SET CMP0167 NEW)
 # find_package(Boost REQUIRED)
 # target_link_libraries(test0 PRIVATE Boost::boost)
+
+
+# wtf
