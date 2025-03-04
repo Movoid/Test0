@@ -10,7 +10,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib)
 file(GLOB_RECURSE test0_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 add_executable(test0 ${test0_SOURCES})
 
-
 target_link_libraries(test0 PRIVATE rpnparser)
 target_link_libraries(test0 PRIVATE mm_malloc)
 target_link_libraries(test0 PRIVATE wcnm)
