@@ -5,8 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -g")
-
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib)
 
 file(GLOB_RECURSE test0_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
@@ -19,6 +17,5 @@ target_link_libraries(test0 PRIVATE wcnm)
 # cmake_policy(SET CMP0167 NEW)
 # find_package(Boost REQUIRED)
 # target_link_libraries(test0 PRIVATE Boost::boost)
-
 
 # final resolution
