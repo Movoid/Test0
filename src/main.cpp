@@ -12,7 +12,7 @@ int main() {
 
   auto sum{[](const std::vector<double> &args) -> double {
     double sum{};
-    std::cout << "this is a fawfw good test1 new feature" << std::endl;
+    std::cout << "this is a awfwaf good test1 new feature" << std::endl;
     std::cout << "which is also fucking good to be merged to main" << std::endl;
     std::cout << "this is also some fucking good feature in test2" << std::endl;
     std::cout << "just merge to main" << std::endl;
