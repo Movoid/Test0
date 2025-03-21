@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib)
 
-file(GLOB_RECURSE test0_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+file(GLOB_RECURSE test0_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/*.s)
 add_executable(test0 ${test0_SOURCES})
 
 target_link_libraries(test0 PRIVATE rpnparser)

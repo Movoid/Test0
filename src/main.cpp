@@ -1,85 +1,115 @@
-#include "RPNExprParser.h"
-#include "Wcnm/wc.h"
-#include "mm_malloc_v1.h"
-#include <cmath>
-#include <iostream>
-#include <vector>
+#include <atomic>
+#include <chrono>
+#include <linux/futex.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
-int main() {
+#define THREADS 20
+#define LOOP 1000000
+#define ROUNDS 10
 
-  wc();
-  std::cout << "test rebase edit" << std::endl;
+volatile int sum = 0;
+pthread_barrier_t barrier;
 
-  auto sum{[](const std::vector<double> &args) -> double {
-    double sum{};
-    std::cout << "this awfwaf a awfwaf good test1 new feature" << std::endl;
-    std::cout << "which is also fucking good to be merged to main" << std::endl;
-    std::cout << "this is also some fucking good feature in test2" << std::endl;
-    std::cout << "just merge to main" << std::endl;
-    for (auto a : args)
-      sum += a;
-    return sum;
-  }};
+// ------------------------ My Futex Mutex ------------------------ //
 
-  auto max{[](const std::vector<double> &args) -> double {
-    double ret{args[0]};
-    for (auto a : args)
-      ret = std::max(ret, a);
-    return ret;
-  }};
+unsigned char atomic_bit_test_set(long *addr, long bit) {
+  unsigned char out;
+  asm volatile("lock btsq %[bit], %[addr]\n\t"
+               "setc %[out]"
+               : [addr] "+m"(*addr), [out] "=q"(out)
+               : [bit] "Ir"(bit)
+               : "memory", "cc");
+  return out;
+}
 
-  auto min{[](const std::vector<double> &args) -> double {
-    double ret{args[0]};
-    for (auto a : args)
-      ret = std::min(ret, a);
-    return ret;
-  }};
+long atomic_increase(long *addr) {
+  long val = 1;
+  asm volatile("lock xaddq %[val], %[addr]"
+               : [val] "+r"(val), [addr] "+m"(*addr)
+               :
+               : "cc", "memory");
+  return val - 1;
+}
 
-  auto hello{[](const std::vector<double> &args) -> double {
-    std::cout << "\nHello, RPNExprParser!" << std::endl;
-    return 0;
-  }};
+long atomic_decrease(long *addr) {
+  long val = -1;
+  asm volatile("lock xaddq %[val], %[addr]"
+               : [val] "+r"(val), [addr] "+m"(*addr)
+               :
+               : "cc", "memory");
+  return val + 1;
+}
 
-  auto exit{[](const std::vector<double> &args) -> double {
-    std::exit(0); // NOLINT
-    return 0;
-  }};
+unsigned char atomic_addzero(long *addr, long val) {
+  unsigned char res;
+  asm volatile("lock addq %[val], %[addr]\n\t"
+               "sete %[res]"
+               : [addr] "+m"(*addr), [res] "=q"(res)
+               : [val] "ir"(val)
+               : "cc", "memory");
+  return res;
+}
 
-  auto addop{[](double a, double b) -> double { return a + b; }};
-
-  auto subop{[](double a, double b) -> double { return a - b; }};
-  auto mulop{[](double a, double b) -> double { return a * b; }};
-  auto divop{[](double a, double b) -> double { return a / b; }};
-  auto powop{[](double a, double b) -> double { return std::pow(a, b); }};
-
-  ExprParser::RPNExprParser<double> parser{};
-
-  parser.addOp('+', addop, 1);
-  parser.addOp('-', subop, 1);
-  parser.addOp('*', mulop, 5);
-  parser.addOp('/', divop, 5);
-  parser.addOp('^', powop, 10);
-
-  parser.addFunc("sum", sum);
-  parser.addFunc("max", max);
-  parser.addFunc("min", min);
-  parser.addFunc("hello_world", hello);
-  parser.addFunc("exit", exit);
-
-  parser.addVar("pi", 3.1415926535);
-  parser.addVar("e", 2.718);
-
-  std::string in{};
+void futex_mutex_lock(long *mutex) {
+  if (atomic_bit_test_set(mutex, 63) == 0) return;
+  atomic_increase(mutex);
   while (true) {
-    std::cout << "Expr: ";
-    std::getline(std::cin, in);
-    parser.setExpr(in);
-    try {
-      std::cout << "RPNExpr: " << parser.parseExpr() << std::endl;
-      std::cout << "CalcRes: " << parser.calcExpr() << std::endl;
-    } catch (const std::exception &e) { std::cout << e.what() << '\n'; }
-    std::cout << '\n';
+    if (atomic_bit_test_set(mutex, 63) == 0) {
+      atomic_decrease(mutex);
+      return;
+    }
+    long val = *mutex;
+    if (val >= 0) continue;
+    syscall(SYS_futex, mutex, FUTEX_WAIT, val, NULL, NULL, 0);
+  }
+}
+
+void futex_mutex_unlock(long *mutex) {
+  if (atomic_addzero(mutex, 0x8000000000000000)) return;
+  syscall(SYS_futex, mutex, FUTEX_WAKE, 1, NULL, NULL, 0);
+}
+
+class lazy_counter_t {
+private:
+  int global_{};
+  pthread_mutex_t glock_{};
+  int local_[20]{};
+  pthread_mutex_t llock_[20]{};
+  int threshold_{};
+
+public:
+  lazy_counter_t(int threshold) : threshold_(threshold), global_(0) {
+    pthread_mutex_init(&glock_, nullptr);
+    for (int i = 0; i < 20; i++) {
+      local_[i] = 0;
+      pthread_mutex_init(&llock_[i], nullptr);
+    }
   }
 
-  return 0;
+  void update(int threadID, int amt) {
+    pthread_mutex_lock(&llock_[threadID]);
+    local_[threadID] += amt;
+    if (local_[threadID] >= threshold_) {
+      pthread_mutex_lock(&glock_);
+      global_ += local_[threadID];
+      pthread_mutex_unlock(&glock_);
+      local_[threadID] = 0;
+    }
+    pthread_mutex_unlock(&llock_[threadID]);
+  }
+
+  int get() {
+    pthread_mutex_lock(&glock_);
+    int val{global_};
+    pthread_mutex_unlock(&glock_);
+    return val;
+  }
+};
+
+int main() {
 }
