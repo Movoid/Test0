@@ -1,11 +1,17 @@
+#include "limits.h"
+// #include "sys/reboot.h"
+#include "linux/reboot.h"
+#include "sys/syscall.h"
 #include <atomic>
 #include <chrono>
+#include <fcntl.h>
 #include <iostream>
 #include <linux/futex.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -102,13 +108,20 @@ void *work2(void *ptr) {
   return nullptr;
 }
 
+typedef struct aaa_t {
+  int a;
+  int b;
+} aaa_t;
+
 int main() {
-  //
 
-  for (int i = 0; i < 100; i++) {
-    sleep(1);
-    printf("%d\n", i);
-  }
+  char *hello = (char *)malloc(sizeof(char) * 2);
+  hello[0] = 0xff;
 
-  //
+  FILE *f = fopen("./111", "w+");
+  fwrite(hello, sizeof(char), strlen(hello), f);
+
+  fclose(f);
+
+  return 0;
 }
