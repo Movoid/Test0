@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/inotify.h>
+#include <syscall.h>
 #include <unistd.h>
 
 #define WATCH_PATH "./a.txt"
