@@ -11,18 +11,13 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/times.h>
-#include <sys/wait.h>
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
 int main(int argc, char *argv[]) {
 
-  char buf[BUFSIZ];
-  int pid;
-  getcwd(buf, BUFSIZ);
-  printf("cwd %s.\n", buf);
-  chdir("/home/MoonVoid/Dev/Projects/CppProjects/Learn/Test3/src");
+  printf("sub prog!\n");
 
   cap_t caps = cap_get_proc();
   cap_flag_value_t cap_val;
@@ -36,13 +31,12 @@ int main(int argc, char *argv[]) {
   }
   cap_free(caps);
 
-  if ((pid = fork()) == 0) {
-    argv[0] = "./test_cap";
-    printf("execve!\n");
-    execve("./test_cap", argv, environ);
-    perror("execve");
-    printf("execve error?\n");
-  }
+  int rt;
 
-  waitpid(pid, NULL, 0);
+  if ((rt = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, CAP_NET_ADMIN, 0, 0)) < 0) {
+    perror("prctl");
+    _exit(-1);
+  }
+  // sleep(10);
+  printf("finished.\n");
 }
