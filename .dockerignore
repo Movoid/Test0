@@ -1,0 +1,12 @@
+# ignore build
+build/
+*.so*
+
+# my ide
+.vscode/
+.cache/
+
+*.patch
+
+Dockerfile
+.dockerignore

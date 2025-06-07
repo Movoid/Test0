@@ -1,0 +1,10 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: test_cpp_runner
+    tty: true
+    working_dir: /app
+    command: ["test3"]
+
