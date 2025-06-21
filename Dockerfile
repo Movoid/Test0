@@ -2,6 +2,8 @@ FROM debian:bookworm AS builder
 
 LABEL maintainer="movoid"
 
+VOLUME test_vol
+
 RUN apt update && apt install -y build-essential git cmake
 
 RUN mkdir /app

@@ -1,10 +1,17 @@
 services:
   test:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
+    volumes:
+      - type: volume
+        source: podman_volume_1
+        target: /test_vol
     container_name: test_cpp_runner
     tty: true
+    stdin_open: true
     working_dir: /app
-    command: ["test3"]
+    command: ["bash"]
 
+volumes:
+  podman_volume_1:
+    name: podman_volume_1
+    
