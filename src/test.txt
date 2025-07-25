@@ -1,0 +1,52 @@
+
+==================
+WARNING: ThreadSanitizer: data race (pid=12627)
+  Atomic read of size 8 at 0x720400d82cd8 by thread T19:
+    #0 std::__atomic_base<LockFreeStack<int>::Node*>::load(std::memory_order) const /usr/include/c++/15.1.1/bits/atomic_base.h:830 (test+0x1607a) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #1 std::__atomic_base<LockFreeStack<int>::Node*>::operator LockFreeStack<int>::Node*() const /usr/include/c++/15.1.1/bits/atomic_base.h:704 (test+0x1607a)
+    #2 std::atomic<LockFreeStack<int>::Node*>::operator LockFreeStack<int>::Node*() const /usr/include/c++/15.1.1/atomic:441 (test+0x11150) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #3 LockFreeStack<int>::pop() src/hazptr_impl_stack.cpp:273 (test+0xd3f2) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #4 operator() src/hazptr_impl_stack.cpp:317 (test+0x5a5a) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #5 __invoke_impl<void, lockfree_stack_test()::<lambda()> > /usr/include/c++/15.1.1/bits/invoke.h:63 (test+0x7dc3) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #6 __invoke<lockfree_stack_test()::<lambda()> > /usr/include/c++/15.1.1/bits/invoke.h:98 (test+0x7c34) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #7 _M_invoke<0> /usr/include/c++/15.1.1/bits/std_thread.h:303 (test+0x7a96) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #8 operator() /usr/include/c++/15.1.1/bits/std_thread.h:310 (test+0x7994) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #9 _M_run /usr/include/c++/15.1.1/bits/std_thread.h:255 (test+0x78c2) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #10 execute_native_thread_routine /usr/src/debug/gcc/gcc/libstdc++-v3/src/c++11/thread.cc:104 (libstdc++.so.6+0xe51a3) (BuildId: 9011e63e44ca89e67c898106f812ea1fc42e6fb3)
+
+  Previous write of size 8 at 0x720400d82cd8 by thread T12:
+    #0 operator new(unsigned long) /usr/src/debug/gcc/gcc/libsanitizer/tsan/tsan_new_delete.cpp:64 (libtsan.so.2+0xaf200) (BuildId: cee2433f3df2305b51fd54f2fcd53d83e674c563)
+    #1 std::__new_allocator<std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false> >::allocate(unsigned long, void const*) /usr/include/c++/15.1.1/bits/new_allocator.h:151 (test+0x248f6) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #2 std::allocator<std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false> >::allocate(unsigned long) /usr/include/c++/15.1.1/bits/allocator.h:203 (test+0x22f95) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #3 std::allocator_traits<std::allocator<std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false> > >::allocate(std::allocator<std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false> >&, unsigned long) /usr/include/c++/15.1.1/bits/alloc_traits.h:614 (test+0x22f95)
+    #4 std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false>* std::__detail::_Hashtable_alloc<std::allocator<std::__detail::_Hash_node<LockFreeStack<int>::Node const*, false> > >::_M_allocate_node<LockFreeStack<int>::Node const* const&>(LockFreeStack<int>::Node const* const&) /usr/include/c++/15.1.1/bits/hashtable_policy.h:1551 (test+0x22f95)
+    #5 std::pair<std::__detail::_Node_iterator<LockFreeStack<int>::Node const*, true, false>, bool> std::_Hashtable<LockFreeStack<int>::Node const*, LockFreeStack<int>::Node const*, std::allocator<LockFreeStack<int>::Node const*>, std::__detail::_Identity, std::equal_to<LockFreeStack<int>::Node const*>, std::hash<LockFreeStack<int>::Node const*>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, true, true> >::_M_emplace_uniq<LockFreeStack<int>::Node const* const&>(LockFreeStack<int>::Node const* const&) /usr/include/c++/15.1.1/bits/hashtable.h:2362 (test+0x216ed) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #6 std::_Hashtable<LockFreeStack<int>::Node const*, LockFreeStack<int>::Node const*, std::allocator<LockFreeStack<int>::Node const*>, std::__detail::_Identity, std::equal_to<LockFreeStack<int>::Node const*>, std::hash<LockFreeStack<int>::Node const*>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, true, true> >::insert(LockFreeStack<int>::Node const* const&) /usr/include/c++/15.1.1/bits/hashtable.h:1049 (test+0x200a1) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #7 std::unordered_set<LockFreeStack<int>::Node const*, std::hash<LockFreeStack<int>::Node const*>, std::equal_to<LockFreeStack<int>::Node const*>, std::allocator<LockFreeStack<int>::Node const*> >::insert(LockFreeStack<int>::Node const* const&) /usr/include/c++/15.1.1/bits/unordered_set.h:475 (test+0x1cecb) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #8 SimpleCU::impl::HazPtrContext<LockFreeStack<int>::Node, 1ul>::output(std::unordered_set<LockFreeStack<int>::Node const*, std::hash<LockFreeStack<int>::Node const*>, std::equal_to<LockFreeStack<int>::Node const*>, std::allocator<LockFreeStack<int>::Node const*> >&) src/hazptr_impl_stack.cpp:61 (test+0x19e27) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #9 SimpleCU::HazPtrManager<LockFreeStack<int>::Node, 20ul, 1ul>::collect_all_hazptrs() src/hazptr_impl_stack.cpp:172 (test+0x1665e) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #10 SimpleCU::HazPtrManager<LockFreeStack<int>::Node, 20ul, 1ul>::delete_no_hazard_local() src/hazptr_impl_stack.cpp:234 (test+0x114a9) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #11 LockFreeStack<int>::pop() src/hazptr_impl_stack.cpp:292 (test+0xd587) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #12 operator() src/hazptr_impl_stack.cpp:317 (test+0x5a5a) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #13 __invoke_impl<void, lockfree_stack_test()::<lambda()> > /usr/include/c++/15.1.1/bits/invoke.h:63 (test+0x7dc3) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #14 __invoke<lockfree_stack_test()::<lambda()> > /usr/include/c++/15.1.1/bits/invoke.h:98 (test+0x7c34) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #15 _M_invoke<0> /usr/include/c++/15.1.1/bits/std_thread.h:303 (test+0x7a96) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #16 operator() /usr/include/c++/15.1.1/bits/std_thread.h:310 (test+0x7994) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #17 _M_run /usr/include/c++/15.1.1/bits/std_thread.h:255 (test+0x78c2) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #18 execute_native_thread_routine /usr/src/debug/gcc/gcc/libstdc++-v3/src/c++11/thread.cc:104 (libstdc++.so.6+0xe51a3) (BuildId: 9011e63e44ca89e67c898106f812ea1fc42e6fb3)
+
+  Thread T19 (tid=12647, running) created by main thread at:
+    #0 pthread_create /usr/src/debug/gcc/gcc/libsanitizer/tsan/tsan_interceptors_posix.cpp:1041 (libtsan.so.2+0x5fcc7) (BuildId: cee2433f3df2305b51fd54f2fcd53d83e674c563)
+    #1 __gthread_create(unsigned long*, void* (*)(void*), void*) /usr/src/debug/gcc/gcc-build/x86_64-pc-linux-gnu/libstdc++-v3/include/x86_64-pc-linux-gnu/bits/gthr-default.h:709 (libstdc++.so.6+0xe52a1) (BuildId: 9011e63e44ca89e67c898106f812ea1fc42e6fb3)
+    #2 std::thread::_M_start_thread(std::unique_ptr<std::thread::_State, std::default_delete<std::thread::_State> >, void (*)()) /usr/src/debug/gcc/gcc/libstdc++-v3/src/c++11/thread.cc:172 (libstdc++.so.6+0xe52a1)
+    #3 lockfree_stack_test() src/hazptr_impl_stack.cpp:320 (test+0x5c57) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #4 main src/hazptr_impl_stack.cpp:436 (test+0x6c26) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+
+  Thread T12 (tid=12640, running) created by main thread at:
+    #0 pthread_create /usr/src/debug/gcc/gcc/libsanitizer/tsan/tsan_interceptors_posix.cpp:1041 (libtsan.so.2+0x5fcc7) (BuildId: cee2433f3df2305b51fd54f2fcd53d83e674c563)
+    #1 __gthread_create(unsigned long*, void* (*)(void*), void*) /usr/src/debug/gcc/gcc-build/x86_64-pc-linux-gnu/libstdc++-v3/include/x86_64-pc-linux-gnu/bits/gthr-default.h:709 (libstdc++.so.6+0xe52a1) (BuildId: 9011e63e44ca89e67c898106f812ea1fc42e6fb3)
+    #2 std::thread::_M_start_thread(std::unique_ptr<std::thread::_State, std::default_delete<std::thread::_State> >, void (*)()) /usr/src/debug/gcc/gcc/libstdc++-v3/src/c++11/thread.cc:172 (libstdc++.so.6+0xe52a1)
+    #3 lockfree_stack_test() src/hazptr_impl_stack.cpp:320 (test+0x5c57) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+    #4 main src/hazptr_impl_stack.cpp:436 (test+0x6c26) (BuildId: 44167dbcb2ce5b386f8a49008a53e2bd6b97e0c4)
+
+SUMMARY: ThreadSanitizer: data race src/hazptr_impl_stack.cpp:273 in LockFreeStack<int>::pop()

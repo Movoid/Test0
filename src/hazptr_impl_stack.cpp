@@ -1,93 +1,8 @@
-// #include <bits/stdc++.h>
-#include <atomic>
-#include <barrier>
+#include "SimpleCU.h"
+#include <bits/stdc++.h>
 #include <boost/lockfree/stack.hpp>
-#include <chrono>
-#include <iostream>
-#include <mutex>
-#include <thread>
-#include <vector>
 
 #define THREAD_CNT (std::thread::hardware_concurrency())
-
-const unsigned max_hazard_pointers{100};
-struct hazard_pointer {
-  std::atomic<std::thread::id> id;
-  std::atomic<void *> pointer;
-};
-
-// ptr pool for all threads
-hazard_pointer hazard_ptrs[max_hazard_pointers]{};
-
-class hp_owner {
-private:
-  hazard_pointer *hp;
-
-public:
-  hp_owner(const hp_owner &) = delete;
-  hp_owner operator=(const hp_owner &) = delete;
-  hp_owner() : hp{nullptr} {
-    for (unsigned int i = 0; i < max_hazard_pointers; i++) {
-      std::thread::id old_id; // empty id
-      if (hazard_ptrs[i].id.compare_exchange_strong(old_id, std::this_thread::get_id(), std::memory_order_acquire,
-                                                    std::memory_order_relaxed)) {
-        hp = &hazard_ptrs[i];
-        break;
-      }
-    }
-    // not found
-    if (!hp) {
-      throw std::runtime_error{"No hazard ptr available"};
-    }
-  }
-  std::atomic<void *> &get_pointer() {
-    return hp->pointer;
-  }
-  ~hp_owner() {
-    hp->pointer.store(nullptr, std::memory_order_relaxed);
-    hp->id.store(std::thread::id{}, std::memory_order_release);
-  }
-};
-
-std::atomic<void *> &get_hazard_pointer_for_current_thread() {
-  thread_local static hp_owner hazard;
-  return hazard.get_pointer();
-}
-
-template<typename T>
-void do_delete(void *p) {
-  delete static_cast<T *>(p);
-}
-
-struct data_to_reclaim {
-  void *data_;
-  std::function<void(void *)> deleter_;
-  data_to_reclaim *next_;
-
-  template<typename T>
-  data_to_reclaim(T *p) : data_{p}, deleter_{&do_delete<T>}, next_{nullptr} {
-  }
-  ~data_to_reclaim() {
-    deleter_(data_);
-  }
-};
-
-std::atomic<data_to_reclaim *> nodes_to_reclaim{};
-std::atomic<int> nodes_to_reclaim_cnt{};
-
-void add_to_reclaim_list(data_to_reclaim *node) {
-  node->next_ = nodes_to_reclaim.load();
-  while (!nodes_to_reclaim.compare_exchange_weak(node->next_, node, std::memory_order_release,
-                                                 std::memory_order_relaxed)) {
-    ;
-  }
-  nodes_to_reclaim_cnt.fetch_add(1, std::memory_order_relaxed);
-}
-
-template<typename T>
-void reclaim_later(T *data) {
-  add_to_reclaim_list(new data_to_reclaim{data});
-}
 
 template<typename ValType>
 class LockFreeStack {
@@ -100,78 +15,47 @@ private:
     }
   };
   std::atomic<Node *> head_;
-
-  bool outstanding_hazard_ptrs_for(Node *node) {
-    for (unsigned i = 0; i < max_hazard_pointers; i++) {
-      if (hazard_ptrs[i].pointer.load(std::memory_order_acquire) == node) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void delete_nodes_with_no_hazards() {
-    // data_to_reclaim *current{nodes_to_reclaim.exchange(nullptr)};
-
-    int reclaim_cnt{};
-    data_to_reclaim *current{nodes_to_reclaim.load(std::memory_order_acquire)};
-    do {
-      reclaim_cnt = nodes_to_reclaim_cnt.load(std::memory_order_relaxed);
-    } while (!nodes_to_reclaim.compare_exchange_weak(current, nullptr, std::memory_order_acq_rel,
-                                                     std::memory_order_relaxed));
-    nodes_to_reclaim_cnt.fetch_sub(reclaim_cnt, std::memory_order_relaxed);
-
-    while (current) {
-      data_to_reclaim *next{current->next_};
-      if (!outstanding_hazard_ptrs_for(reinterpret_cast<Node *>(current->data_))) {
-        delete current;
-      } else {
-        add_to_reclaim_list(current); // 不可回收
-      }
-      current = next;
-    }
-  }
+  SimpleCU::HazPtrManager<Node, 20, 1> hazptr_manager_;
 
 public:
   void push(const ValType &val) {
     Node *new_node{new Node{val}};
-    Node *expected = head_.load(std::memory_order_relaxed);
+    Node *expected = head_.load(std::memory_order_seq_cst);
     new_node->next_ = expected;
-    while (!head_.compare_exchange_weak(expected, new_node, std::memory_order_release, std::memory_order_relaxed)) {
+    while (!head_.compare_exchange_weak(expected, new_node, std::memory_order_seq_cst, std::memory_order_seq_cst)) {
       new_node->next_ = expected;
     }
   }
 
   std::optional<ValType> pop() {
-    std::atomic<void *> &hazardptr{get_hazard_pointer_for_current_thread()};
-    Node *old_head{head_.load(std::memory_order_relaxed)};
+    Node *old_head{head_.load(std::memory_order_seq_cst)};
     do {
       Node *tmp{};
       do {
         tmp = old_head;
-        hazardptr.store(old_head, std::memory_order_seq_cst); // (1)
-        old_head = head_.load(std::memory_order_seq_cst);     // (2) this shouldn't be modified
+        hazptr_manager_.set_hazptr(0, old_head);
+        old_head = head_.load(std::memory_order_seq_cst); // (2) this shouldn't be modified
       } while (old_head != tmp);
-    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acq_rel,
-                                                      std::memory_order_relaxed));
+    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_seq_cst, // ?
+                                                      std::memory_order_seq_cst));
 
-    hazardptr.store(nullptr, std::memory_order_release);
+    hazptr_manager_.set_hazptr(0, nullptr);
 
     if (!old_head) {
       return std::nullopt;
     }
 
     ValType ret{std::move(old_head->val_)};
-    if (nodes_to_reclaim_cnt.load(std::memory_order_relaxed) >= 2 * max_hazard_pointers) {
-      if (outstanding_hazard_ptrs_for(old_head)) {
-        reclaim_later(old_head);
+    if (hazptr_manager_.get_retired_cnt_local() >= 2 * hazptr_manager_.get_max_hazptr_cnt_global()) {
+      if (hazptr_manager_.check_hazptr(old_head)) {
+        hazptr_manager_.retire(old_head);
       } else {
         delete old_head;
       }
     } else {
-      reclaim_later(old_head);
+      hazptr_manager_.retire(old_head);
     }
-    delete_nodes_with_no_hazards();
+    hazptr_manager_.delete_no_hazard_local();
     return std::make_optional(std::move(ret));
   }
 };
