@@ -152,7 +152,8 @@ public:
         hazardptr.store(old_head, std::memory_order_seq_cst); // (1)
         old_head = head_.load(std::memory_order_seq_cst);     // (2) this shouldn't be modified
       } while (old_head != tmp);
-    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acq_rel,
+
+    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_seq_cst,
                                                       std::memory_order_relaxed));
 
     hazardptr.store(nullptr, std::memory_order_release);

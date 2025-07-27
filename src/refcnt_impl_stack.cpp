@@ -5,61 +5,95 @@
 #define THREAD_CNT (std::thread::hardware_concurrency())
 
 template<typename ValType>
-class LockFreeStack {
+class TaggedPtr {
 private:
-  struct Node {
-    ValType val_;
-    std::atomic<Node *> next_;
-    Node(const ValType &val) : val_{val} {
-    }
-  };
-  std::atomic<Node *> head_;
-  SimpleCU::HazPtrManager<Node, 20, 1> hazptr_manager_;
+  static constexpr uintptr_t PTR_MASK = (1ULL << 48) - 1;
+  static constexpr uintptr_t TAG_MASK = ~PTR_MASK;
+
+  uint64_t raw_;
 
 public:
-  void push(const ValType &val) {
-    Node *new_node{new Node{val}};
-    Node *expected = head_.load(std::memory_order_relaxed);
-    new_node->next_ = expected;
-    while (!head_.compare_exchange_weak(expected, new_node, std::memory_order_release, std::memory_order_relaxed)) {
-      new_node->next_ = expected;
+  TaggedPtr() : raw_{} {
+  }
+
+  TaggedPtr(ValType *ptr, uint16_t tag) {
+    set_ptr(ptr);
+    set_tag(tag);
+  }
+
+  void set_ptr(ValType *ptr) {
+    raw_ = raw_ & TAG_MASK | reinterpret_cast<uint64_t>(ptr);
+  }
+
+  void set_tag(uint16_t tag) {
+    raw_ = raw_ & PTR_MASK | (static_cast<uint64_t>(tag) << 48);
+  }
+
+  ValType *get_ptr() const {
+    return reinterpret_cast<ValType *>(raw_ & PTR_MASK);
+  }
+
+  uint16_t get_tag() const {
+    return static_cast<uint16_t>((raw_ & TAG_MASK) >> 48);
+  }
+};
+
+template<typename ValType>
+class LockFreeStack {
+private:
+  struct Node;
+  struct Node {
+    ValType val_;
+    std::atomic<int> internal_cnt_; // 读取结束后自减
+    TaggedPtr<Node> next_;
+    Node(const ValType &val) : val_{val}, internal_cnt_{0} {
+    }
+  };
+
+  std::atomic<TaggedPtr<Node>> head_;
+
+  void increase_head_count(TaggedPtr<Node> &old_counter) {
+    TaggedPtr<Node> new_counter{};
+    do {
+      new_counter = old_counter;
+      new_counter.set_tag(new_counter.get_tag() + 1);
+    } while (!head_.compare_exchange_weak(old_counter, new_counter));
+    old_counter.set_tag(new_counter.get_tag());
+  }
+
+public:
+  ~LockFreeStack() {
+    while (pop().has_value()) {
+      ;
     }
   }
 
-  std::optional<ValType> pop() {
-    Node *old_head{head_.load(std::memory_order_relaxed)};
+  void push(const ValType &val) {
+    TaggedPtr<Node> new_node{new Node{val}, 1};
     do {
-      Node *tmp{};
-      do {
-        tmp = old_head;
-        hazptr_manager_.set_hazptr(0,
-                                   old_head);             // (1) seq_cst store 保证不和 (2) 乱序
-        old_head = head_.load(std::memory_order_seq_cst); // (2) seq_cst 必须读到最新值, 来判断 `head_` 这期间没有变化
-      } while (old_head != tmp);
-      // 如果 `head_` 已经被其他线程 CAS 修改, 还允许 `old_head` 读到旧值, 错误判断 `head_` 没变,
-      // `old_head` 可能早在当前线程设置 hazard pointer 之前就被 delete,
-      // CAS `old_head->next_` use after free
-    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_seq_cst,
-                                                      std::memory_order_relaxed));
+      new_node.get_ptr()->next_ = head_.load();
+    } while (!head_.compare_exchange_weak(new_node.get_ptr()->next_, new_node));
+  }
 
-    hazptr_manager_.unset_hazptr(0); // release
-
-    if (!old_head) {
-      return std::nullopt;
-    }
-
-    ValType ret{std::move(old_head->val_)};
-    if (hazptr_manager_.get_retired_cnt_local() >= 2 * hazptr_manager_.get_max_hazptr_cnt_global()) {
-      if (hazptr_manager_.check_hazptr(old_head)) { // acquire
-        hazptr_manager_.retire(old_head);
-      } else {
-        delete old_head;
+  std::optional<ValType> pop() {
+    TaggedPtr<Node> old_head{head_.load()};
+    while (true) {
+      increase_head_count(old_head);
+      Node *ptr{old_head.get_ptr()};
+      if (!ptr) {
+        return std::nullopt;
       }
-    } else {
-      hazptr_manager_.retire(old_head);
+      if (head_.compare_exchange_strong(old_head, ptr->next_)) {
+        ValType ret{std::move(ptr->val_)};
+        uint16_t count_increase{static_cast<uint16_t>(old_head.get_tag() - 2)};
+        if (ptr->internal_cnt_.fetch_add(count_increase) == -count_increase) {
+          delete ptr;
+        }
+        return std::make_optional(std::move(ret));
+      } else if (ptr->internal_cnt_.fetch_sub(1) == 1) { // this `old_head` is left
+        delete ptr;
+      }
     }
-    hazptr_manager_.delete_no_hazard_local();
-    return std::make_optional(std::move(ret));
   }
 };
 

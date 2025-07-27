@@ -26,6 +26,8 @@ target_link_libraries(test3 PRIVATE wcnm)
 # cmake_policy(SET CMP0167 NEW)
 # find_package(Boost REQUIRED)
 # target_link_libraries(test3 PRIVATE Boost::boost)
+
+
 include(GNUInstallDirs)
 
 install(TARGETS test3

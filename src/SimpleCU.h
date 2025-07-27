@@ -36,7 +36,8 @@ namespace SimpleCU::impl {
   template<typename ValType, std::size_t SlotSize>
   class HazPtrContext {
   private:
-    std::array<AlignedWrapper<std::atomic<const ValType *>, 64>, SlotSize> hazptr_;
+    constexpr static std::size_t ALIGNMENT{std::hardware_constructive_interference_size};
+    std::array<AlignedWrapper<std::atomic<const ValType *>, ALIGNMENT>, SlotSize> hazptr_;
 
   public:
     bool contains(const ValType *ptr) const {
@@ -53,6 +54,11 @@ namespace SimpleCU::impl {
       return true;
     }
 
+    bool unset_hazptr(std::size_t idx) {
+      hazptr_[idx].store(nullptr, std::memory_order_release);
+      return true;
+    }
+
     void output(std::unordered_set<const ValType *> &out) {
       for (std::size_t i = 0; i < SlotSize; i++) {
         const ValType *ptr{};
@@ -66,12 +72,13 @@ namespace SimpleCU::impl {
   template<typename ValType>
   class RetiredContext {
   private:
+    constexpr static std::size_t ALIGNMENT{std::hardware_constructive_interference_size};
     struct RetiredNode {
       ValType *val_;
       RetiredNode *next_;
     };
     RetiredNode *retired_;
-    AlignedWrapper<std::atomic<std::size_t>, 64> cnt_;
+    AlignedWrapper<std::atomic<std::size_t>, ALIGNMENT> cnt_;
 
   public:
     RetiredContext() = default;
@@ -219,6 +226,15 @@ namespace SimpleCU {
       }
       HazPtrContext_ *hazptr_ctx{context.value().first};
       return hazptr_ctx->set_hazptr(idx, ptr);
+    }
+
+    bool unset_hazptr(std::size_t idx) {
+      auto context{get_context()};
+      if (!context.has_value()) {
+        return false;
+      }
+      HazPtrContext_ *hazptr_ctx{context.value().first};
+      return hazptr_ctx->unset_hazptr(idx);
     }
 
     void retire(ValType *ptr) {
