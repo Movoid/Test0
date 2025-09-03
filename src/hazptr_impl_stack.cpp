@@ -2,14 +2,12 @@
 #include <bits/stdc++.h>
 #include <boost/lockfree/stack.hpp>
 
-#define THREAD_CNT (std::thread::hardware_concurrency())
-
 template<typename ValType>
 class LockFreeStack {
 private:
   struct Node {
     ValType val_;
-    std::atomic<Node *> next_;
+    Node *next_;
     Node(const ValType &val) : val_{val} {
     }
   };
@@ -63,33 +61,48 @@ public:
   }
 };
 
-#define VALTAG_SCALE 1000000u
+#define PARA_CNT (20)
+#define VALTAG_SCALE 5000000ul
+
+std::size_t PUSH_PARA_CNT{15};
+std::size_t POP_PARA_CNT{5};
 
 void lockfree_stack_test() {
   std::vector<int> valtag(VALTAG_SCALE, 0);
   LockFreeStack<int> stack{};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::jthread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
-    js[i] = std::thread{[&valtag, &stack, &b, i]() {
+  for (int i = 0; i < PUSH_PARA_CNT; i++) {
+    js[i] = std::jthread{[&stack, &b, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
-      unsigned int beg{blksz * i};
-      unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
+      std::size_t blksz{(VALTAG_SCALE + PUSH_PARA_CNT - 1) / PUSH_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
         stack.push(i);
-      }
-      b.arrive_and_wait();
-      std::optional<int> res{};
-      while ((res = stack.pop()).has_value()) {
-        valtag[res.value()] = 1;
       }
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < POP_PARA_CNT; i++) {
+    js[PUSH_PARA_CNT + i] = std::jthread{[&valtag, &stack, &b, i]() {
+      b.arrive_and_wait();
+      std::size_t blksz{(VALTAG_SCALE + POP_PARA_CNT - 1) / POP_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
+      for (int i = beg; i < end;) {
+        std::optional<int> res{stack.pop()};
+        if (res.has_value()) {
+          i++;
+          valtag[res.value()] = 1;
+        }
+      }
+    }};
+  }
+
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
 
@@ -108,38 +121,47 @@ void lockfree_stack_test() {
 
 void normal_stack_test() {
   std::vector<int> valtag(VALTAG_SCALE, 0);
-  std::vector<int> stack(VALTAG_SCALE, 0);
+  std::stack<int> stack{};
   std::mutex m{};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::jthread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
-    js[i] = std::thread{[&valtag, &stack, &m, &b, i]() {
+  for (int i = 0; i < PUSH_PARA_CNT; i++) {
+    js[i] = std::jthread{[&stack, &b, &m, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
-      unsigned int beg{blksz * i};
-      unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
+      std::size_t blksz{(VALTAG_SCALE + PUSH_PARA_CNT - 1) / PUSH_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
-        std::lock_guard<std::mutex> l{m};
-        stack.push_back(i);
-      }
-      b.arrive_and_wait();
-      std::optional<int> res{};
-      while (true) {
-        std::lock_guard<std::mutex> l{m};
-        if (stack.empty()) {
-          break;
-        }
-        valtag[stack.back()] = 1;
-        stack.pop_back();
+        std::lock_guard<std::mutex> lock{m};
+        stack.push(i);
       }
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < POP_PARA_CNT; i++) {
+    js[PUSH_PARA_CNT + i] = std::jthread{[&valtag, &stack, &b, &m, i]() {
+      b.arrive_and_wait();
+      std::size_t blksz{(VALTAG_SCALE + POP_PARA_CNT - 1) / POP_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
+      for (int i = beg; i < end;) {
+        std::lock_guard<std::mutex> l{m};
+        if (stack.empty()) {
+          continue;
+        }
+        i++;
+        valtag[stack.top()] = 1;
+        stack.pop();
+      }
+    }};
+  }
+
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
+
   bool passed{true};
   int checksum{};
   for (int i = 0; i < VALTAG_SCALE; i++) {
@@ -155,37 +177,43 @@ void normal_stack_test() {
 
 void boost_stack_test() {
   std::vector<int> valtag(VALTAG_SCALE, 0);
-  // std::vector<int> stack(VALTAG_SCALE, 0);
   boost::lockfree::stack<int> stack{VALTAG_SCALE};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::jthread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
-    js[i] = std::thread{[&valtag, &stack, &b, i]() {
+  for (int i = 0; i < PUSH_PARA_CNT; i++) {
+    js[i] = std::jthread{[&stack, &b, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
-      unsigned int beg{blksz * i};
-      unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
+      std::size_t blksz{(VALTAG_SCALE + PUSH_PARA_CNT - 1) / PUSH_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
-        // stack.push_back(i);
         stack.push(i);
-      }
-      b.arrive_and_wait();
-      // std::optional<int> res{};
-      // while ((res = stack.pop()).has_value()) {
-      //   valtag[res.value()] = 1;
-      // }
-      int res{};
-      while (stack.pop(res)) {
-        valtag[res] = 1;
       }
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < POP_PARA_CNT; i++) {
+    js[PUSH_PARA_CNT + i] = std::jthread{[&valtag, &stack, &b, i]() {
+      b.arrive_and_wait();
+      std::size_t blksz{(VALTAG_SCALE + POP_PARA_CNT - 1) / POP_PARA_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
+      for (int i = beg; i < end;) {
+        int res{};
+        if (stack.pop(res)) {
+          i++;
+          valtag[res] = 1;
+        }
+      }
+    }};
+  }
+
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
+
   bool passed{true};
   int checksum{};
   for (int i = 0; i < VALTAG_SCALE; i++) {
@@ -206,13 +234,13 @@ int main() {
   auto end2{std::chrono::high_resolution_clock::now()};
   std::cout << end2 - beg2 << std::endl;
 
-  // auto beg3{std::chrono::high_resolution_clock::now()};
-  // boost_stack_test();
-  // auto end3{std::chrono::high_resolution_clock::now()};
-  // std::cout << end3 - beg3 << std::endl;
-
   auto beg1{std::chrono::high_resolution_clock::now()};
   normal_stack_test();
   auto end1{std::chrono::high_resolution_clock::now()};
   std::cout << end1 - beg1 << std::endl;
+
+  auto beg3{std::chrono::high_resolution_clock::now()};
+  boost_stack_test();
+  auto end3{std::chrono::high_resolution_clock::now()};
+  std::cout << end3 - beg3 << std::endl;
 }

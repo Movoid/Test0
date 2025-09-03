@@ -1,8 +1,8 @@
-#include "SimpleCU.h"
+#include <barrier>
 #include <bits/stdc++.h>
 #include <boost/lockfree/stack.hpp>
 
-#define THREAD_CNT (std::thread::hardware_concurrency())
+#define PARA_CNT (std::thread::hardware_concurrency())
 
 template<typename ValType>
 class TaggedPtr {
@@ -44,54 +44,67 @@ private:
   struct Node;
   struct Node {
     ValType val_;
-    std::atomic<int> internal_cnt_; // 读取结束后自减
+    std::atomic<int> in_refcnt;
     TaggedPtr<Node> next_;
-    Node(const ValType &val) : val_{val}, internal_cnt_{0} {
+    Node(const ValType &val) : val_{val}, in_refcnt{0} {
     }
   };
 
   std::atomic<TaggedPtr<Node>> head_;
 
-  void increase_head_count(TaggedPtr<Node> &old_counter) {
-    TaggedPtr<Node> new_counter{};
+  void increase_headptr_refcnt(TaggedPtr<Node> &old_head) {
+    TaggedPtr<Node> updated_head{};
     do {
-      new_counter = old_counter;
-      new_counter.set_tag(new_counter.get_tag() + 1);
-    } while (!head_.compare_exchange_weak(old_counter, new_counter));
-    old_counter.set_tag(new_counter.get_tag());
+      updated_head = old_head;
+      updated_head.set_tag(updated_head.get_tag() + 1);
+    } while (
+        !head_.compare_exchange_weak(old_head, updated_head, std::memory_order_acquire, std::memory_order_relaxed));
+    old_head.set_tag(updated_head.get_tag());
   }
 
 public:
   ~LockFreeStack() {
-    while (pop().has_value()) {
-      ;
+    Node *cur{head_.load().get_ptr()};
+    while (cur) {
+      Node *next{cur->next_.get_ptr()};
+      delete cur;
+      cur = next;
     }
   }
 
   void push(const ValType &val) {
-    TaggedPtr<Node> new_node{new Node{val}, 1};
-    do {
-      new_node.get_ptr()->next_ = head_.load();
-    } while (!head_.compare_exchange_weak(new_node.get_ptr()->next_, new_node));
+    TaggedPtr<Node> new_head{new Node{val}, 1};
+    new_head.get_ptr()->next_ = head_.load();
+    while (!head_.compare_exchange_weak(
+        new_head.get_ptr()->next_, new_head, std::memory_order_release,
+        std::memory_order_relaxed)) { // `head_` 的 ptr ref 转移到 `new_node` 的 `next_` 上 .
+      ;
+    }
   }
 
   std::optional<ValType> pop() {
-    TaggedPtr<Node> old_head{head_.load()};
-    while (true) {
-      increase_head_count(old_head);
-      Node *ptr{old_head.get_ptr()};
-      if (!ptr) {
+    TaggedPtr<Node> old_head{head_.load(std::memory_order_relaxed)};
+    while (true) {                       // inf loop 以便灵活控制 CAS 成功/失败 的不同行为
+      increase_headptr_refcnt(old_head); // 成功 acquire `head_` 并增加 ptr refcnt
+      Node *old_head_ptr{old_head.get_ptr()};
+      if (!old_head_ptr) {
         return std::nullopt;
       }
-      if (head_.compare_exchange_strong(old_head, ptr->next_)) {
-        ValType ret{std::move(ptr->val_)};
-        uint16_t count_increase{static_cast<uint16_t>(old_head.get_tag() - 2)};
-        if (ptr->internal_cnt_.fetch_add(count_increase) == -count_increase) {
-          delete ptr;
+
+      if (head_.compare_exchange_strong(old_head, old_head_ptr->next_, std::memory_order_relaxed,
+                                        std::memory_order_relaxed)) { // 尝试独占 `head_` 指向的资源
+        ValType ret{std::move(old_head_ptr->val_)};                   // 拿到数据, 可以放弃独占当前资源的 1 个 ref
+        uint16_t move_refcnt{
+            static_cast<uint16_t>(old_head.get_tag() - 2)}; // 减少 `head_` ptr 的 1 个 ref + 当前独占资源的 1 个 ref
+        if (old_head_ptr->in_refcnt.fetch_add(move_refcnt, std::memory_order_release) ==
+            -move_refcnt) { // 将 ptr refcnt 加回资源 refcnt
+          delete old_head_ptr;
         }
         return std::make_optional(std::move(ret));
-      } else if (ptr->internal_cnt_.fetch_sub(1) == 1) { // this `old_head` is left
-        delete ptr;
+      } else if (old_head_ptr->in_refcnt.fetch_sub(1, std::memory_order_relaxed) ==
+                 1) { // 独占失败, 直接在资源上减少 ref
+        old_head_ptr->in_refcnt.load(std::memory_order_acquire);
+        delete old_head_ptr;
       }
     }
   }
@@ -103,13 +116,13 @@ void lockfree_stack_test() {
   std::vector<int> valtag(VALTAG_SCALE, 0);
   LockFreeStack<int> stack{};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::thread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i] = std::thread{[&valtag, &stack, &b, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
+      unsigned int blksz{(VALTAG_SCALE + PARA_CNT - 1) / PARA_CNT};
       unsigned int beg{blksz * i};
       unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
@@ -123,7 +136,7 @@ void lockfree_stack_test() {
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
 
@@ -145,13 +158,13 @@ void normal_stack_test() {
   std::vector<int> stack(VALTAG_SCALE, 0);
   std::mutex m{};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::thread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i] = std::thread{[&valtag, &stack, &m, &b, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
+      unsigned int blksz{(VALTAG_SCALE + PARA_CNT - 1) / PARA_CNT};
       unsigned int beg{blksz * i};
       unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
@@ -171,7 +184,7 @@ void normal_stack_test() {
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
   bool passed{true};
@@ -192,13 +205,13 @@ void boost_stack_test() {
   // std::vector<int> stack(VALTAG_SCALE, 0);
   boost::lockfree::stack<int> stack{VALTAG_SCALE};
 
-  std::barrier b{THREAD_CNT};
-  std::vector<std::thread> js(THREAD_CNT);
+  std::barrier b{PARA_CNT};
+  std::vector<std::thread> js(PARA_CNT);
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i] = std::thread{[&valtag, &stack, &b, i]() {
       b.arrive_and_wait();
-      unsigned int blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
+      unsigned int blksz{(VALTAG_SCALE + PARA_CNT - 1) / PARA_CNT};
       unsigned int beg{blksz * i};
       unsigned int end{std::min(beg + blksz, VALTAG_SCALE)};
       for (int i = beg; i < end; i++) {
@@ -217,7 +230,7 @@ void boost_stack_test() {
     }};
   }
 
-  for (int i = 0; i < THREAD_CNT; i++) {
+  for (int i = 0; i < PARA_CNT; i++) {
     js[i].join();
   }
   bool passed{true};
