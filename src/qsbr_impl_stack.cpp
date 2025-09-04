@@ -1,4 +1,4 @@
-#include "SimpleCU_HazPtr.h"
+#include "SimpleCU_QSBR.h"
 #include <bits/stdc++.h>
 #include <boost/lockfree/stack.hpp>
 
@@ -12,7 +12,8 @@ private:
     }
   };
   std::atomic<Node *> head_;
-  SimpleCU::HazPtr::HazPtrManager<Node, 20, 1> hazptr_manager_;
+  // SimpleCU::HazPtr::HazPtrManager<Node, 20, 1> hazptr_manager_;
+  SimpleCU::QSBR::QSBRManager<20, Node *> qsbr_mgr_;
 
 public:
   void push(const ValType &val) {
@@ -24,39 +25,61 @@ public:
     }
   }
 
-  std::optional<ValType> pop() {
-    Node *old_head{head_.load(std::memory_order_relaxed)};
-    do {
-      Node *tmp{};
-      do {
-        tmp = old_head;
-        hazptr_manager_.set_hazptr(0,
-                                   old_head);             // (1) seq_cst store 保证不和 (2) 乱序
-        old_head = head_.load(std::memory_order_seq_cst); // (2) seq_cst 必须读到最新值, 来判断 `head_` 这期间没有变化
-      } while (old_head != tmp);
-      // 如果 `head_` 已经被其他线程 CAS 修改, 还允许 `old_head` 读到旧值, 错误判断 `head_` 没变,
-      // `old_head` 可能早在当前线程设置 hazard pointer 之前就被 delete,
-      // CAS `old_head->next_` use after free
-    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_seq_cst,
-                                                      std::memory_order_relaxed));
+  // std::optional<ValType> pop() {
+  //   Node *old_head{head_.load(std::memory_order_relaxed)};
+  //   do {
+  //     Node *tmp{};
+  //     do {
+  //       tmp = old_head;
+  //       hazptr_manager_.set_hazptr(0,
+  //                                  old_head);             // (1) seq_cst store 保证不和 (2) 乱序
+  //       old_head = head_.load(std::memory_order_seq_cst); // (2) seq_cst 必须读到最新值, 来判断 `head_`
+  //       这期间没有变化
+  //     } while (old_head != tmp);
+  //     // 如果 `head_` 已经被其他线程 CAS 修改, 还允许 `old_head` 读到旧值, 错误判断 `head_` 没变,
+  //     // `old_head` 可能早在当前线程设置 hazard pointer 之前就被 delete,
+  //     // CAS `old_head->next_` use after free
+  //   } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_seq_cst,
+  //                                                     std::memory_order_relaxed));
 
-    hazptr_manager_.unset_hazptr(0); // release
+  //   hazptr_manager_.unset_hazptr(0); // release
+
+  //   if (!old_head) {
+  //     return std::nullopt;
+  //   }
+
+  //   ValType ret{std::move(old_head->val_)};
+  //   if (hazptr_manager_.get_retired_cnt_local() >= 2 * hazptr_manager_.get_max_hazptr_cnt_global()) {
+  //     if (hazptr_manager_.check_hazptr(old_head)) { // acquire
+  //       hazptr_manager_.retire(old_head);
+  //     } else {
+  //       delete old_head;
+  //     }
+  //   } else {
+  //     hazptr_manager_.retire(old_head);
+  //   }
+  //   hazptr_manager_.reclaim_local();
+  //   return std::make_optional(std::move(ret));
+  // }
+
+  auto pop() -> std::optional<ValType> {
+    qsbr_mgr_.enter_critical_zone();
+    Node *old_head{head_.load(std::memory_order_acquire)};
+    do {
+    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acquire,
+                                                      std::memory_order_acquire));
+    qsbr_mgr_.exit_critical_zone();
 
     if (!old_head) {
       return std::nullopt;
     }
 
     ValType ret{std::move(old_head->val_)};
-    if (hazptr_manager_.get_retired_cnt_local() >= 2 * hazptr_manager_.get_max_hazptr_cnt_global()) {
-      if (hazptr_manager_.check_hazptr(old_head)) { // acquire
-        hazptr_manager_.retire(old_head);
-      } else {
-        delete old_head;
-      }
-    } else {
-      hazptr_manager_.retire(old_head);
+    qsbr_mgr_.retire(std::move(old_head));
+    if (qsbr_mgr_.get_retired_cnt_local() > 64) {
+      qsbr_mgr_.reclaim_local();
     }
-    hazptr_manager_.reclaim_local();
+
     return std::make_optional(std::move(ret));
   }
 };
@@ -227,6 +250,95 @@ void boost_stack_test() {
   std::cout << checksum << std::endl;
 }
 
+#define THREAD_CNT (PARA_CNT)
+void legacy_lockfree_stack_test() {
+  std::vector<int> valtag(VALTAG_SCALE, 0);
+  LockFreeStack<int> stack{};
+
+  std::barrier b{THREAD_CNT};
+  std::vector<std::thread> js(THREAD_CNT);
+
+  for (int i = 0; i < THREAD_CNT; i++) {
+    js[i] = std::thread{[&valtag, &stack, &b, i]() {
+      b.arrive_and_wait();
+      std::size_t blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
+      for (int i = beg; i < end; i++) {
+        stack.push(i);
+      }
+      b.arrive_and_wait();
+      std::optional<int> res{};
+      while ((res = stack.pop()).has_value()) {
+        valtag[res.value()] = 1;
+      }
+    }};
+  }
+
+  for (int i = 0; i < THREAD_CNT; i++) {
+    js[i].join();
+  }
+
+  bool passed{true};
+  int checksum{};
+  for (int i = 0; i < VALTAG_SCALE; i++) {
+    checksum += valtag[i];
+    if (valtag[i] != 1) {
+      passed = false;
+      break;
+    }
+  }
+  std::cout << (passed ? "passed" : "failed") << std::endl;
+  std::cout << checksum << std::endl;
+}
+
+void legacy_normal_stack_test() {
+  std::vector<int> valtag(VALTAG_SCALE, 0);
+  std::vector<int> stack(VALTAG_SCALE, 0);
+  std::mutex m{};
+
+  std::barrier b{THREAD_CNT};
+  std::vector<std::thread> js(THREAD_CNT);
+
+  for (int i = 0; i < THREAD_CNT; i++) {
+    js[i] = std::thread{[&valtag, &stack, &m, &b, i]() {
+      b.arrive_and_wait();
+      std::size_t blksz{(VALTAG_SCALE + THREAD_CNT - 1) / THREAD_CNT};
+      std::size_t beg{blksz * i};
+      std::size_t end{std::min(beg + blksz, VALTAG_SCALE)};
+      for (int i = beg; i < end; i++) {
+        std::lock_guard<std::mutex> l{m};
+        stack.push_back(i);
+      }
+      b.arrive_and_wait();
+      std::optional<int> res{};
+      while (true) {
+        std::lock_guard<std::mutex> l{m};
+        if (stack.empty()) {
+          break;
+        }
+        valtag[stack.back()] = 1;
+        stack.pop_back();
+      }
+    }};
+  }
+
+  for (int i = 0; i < THREAD_CNT; i++) {
+    js[i].join();
+  }
+  bool passed{true};
+  int checksum{};
+  for (int i = 0; i < VALTAG_SCALE; i++) {
+    checksum += valtag[i];
+    if (valtag[i] != 1) {
+      passed = false;
+      break;
+    }
+  }
+  std::cout << (passed ? "passed" : "failed") << std::endl;
+  std::cout << checksum << std::endl;
+}
+
 int main() {
 
   auto beg2{std::chrono::high_resolution_clock::now()};
@@ -239,8 +351,8 @@ int main() {
   auto end1{std::chrono::high_resolution_clock::now()};
   std::cout << end1 - beg1 << std::endl;
 
-  auto beg3{std::chrono::high_resolution_clock::now()};
-  boost_stack_test();
-  auto end3{std::chrono::high_resolution_clock::now()};
-  std::cout << end3 - beg3 << std::endl;
+  // auto beg3{std::chrono::high_resolution_clock::now()};
+  // boost_stack_test();
+  // auto end3{std::chrono::high_resolution_clock::now()};
+  // std::cout << end3 - beg3 << std::endl;
 }

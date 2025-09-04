@@ -1,4 +1,4 @@
-#include "SimpleCU.h"
+#include "SimpleCU_HazPtr.h"
 #include <bits/stdc++.h>
 
 template<typename ValType, typename Allocator = std::allocator<ValType>>
@@ -11,7 +11,7 @@ private:
     }
   };
   std::atomic<Node *> head_;
-  SimpleCU::HazPtrManager<Node, 20, 1> hazptr_manager_;
+  SimpleCU::HazPtr::HazPtrManager<Node, 20, 1> hazptr_manager_;
 
   using NodeAllocTraits = std::allocator_traits<typename std::allocator_traits<Allocator>::template rebind_alloc<Node>>;
   using NodeAlloc = typename NodeAllocTraits::allocator_type;

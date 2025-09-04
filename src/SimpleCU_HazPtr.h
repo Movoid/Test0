@@ -47,8 +47,8 @@ namespace SimpleCU::HazPtr::Details {
         ValType *val_;
         RetiredNode *next_;
       };
-      RetiredNode *retired_;
-      Utils::Aligned<std::atomic<std::size_t>> cnt_;
+      RetiredNode *retired_{};
+      Utils::Aligned<std::atomic<std::size_t>> cnt_{};
 
     public:
       RetiredContext() = default;
@@ -78,6 +78,7 @@ namespace SimpleCU::HazPtr::Details {
 
       void delete_no_hazard(const std::unordered_set<const ValType *> &hazptrs) {
         RetiredNode *old_retired{retired_};
+        std::uint64_t unsafe_cnt{};
         retired_ = nullptr;
         cnt_.store(0, std::memory_order_relaxed);
         while (old_retired) {
@@ -88,9 +89,11 @@ namespace SimpleCU::HazPtr::Details {
           } else {
             old_retired->next_ = retired_;
             retired_ = old_retired;
+            unsafe_cnt++;
           }
           old_retired = next;
         }
+        cnt_.fetch_add(unsafe_cnt, std::memory_order_relaxed);
       }
     };
   } // namespace HazPtr
@@ -122,7 +125,7 @@ namespace SimpleCU::HazPtr {
       HazPtrContext_ *local_hazptr_ctx_;
       RetiredContext_ *local_retired_ctx_;
     };
-    inline static std::atomic<std::size_t> next_idx_;
+    inline static std::atomic<std::size_t> next_idx_{};
     const std::size_t this_idx_;
     thread_local inline static std::vector<LocalEntry> tls_;
 
