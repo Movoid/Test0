@@ -210,6 +210,10 @@ namespace SimpleCU::QSBR {
      * `QSBRManager` 的生命周期应该晚于所有线程结束.
      */
     ~QSBRManager() {
+      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+        RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
+        retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+      }
       tls_map_.erase(mgr_idx_);
     }
 

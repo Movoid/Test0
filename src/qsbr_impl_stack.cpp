@@ -65,13 +65,12 @@ public:
   auto pop() -> std::optional<ValType> {
 
     Node *old_head{};
-    {
-      SimpleCU::QSBR::QSBRGuard guard{qsbr_mgr_};
-      old_head = head_.load(std::memory_order_acquire);
-      do {
-      } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acquire,
-                                                        std::memory_order_acquire));
-    }
+    qsbr_mgr_.enter_critical_zone();
+    old_head = head_.load(std::memory_order_acquire);
+    do {
+    } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acquire,
+                                                      std::memory_order_acquire));
+    qsbr_mgr_.exit_critical_zone();
 
     if (!old_head) {
       return std::nullopt;
