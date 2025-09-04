@@ -7,12 +7,12 @@ namespace SimpleCU::QSBR::Details {
   template<typename ValType, typename DeleterType>
   class RetiredContext {
   private:
-    using epoch_t_ = std::uint8_t;
-    using ctx_idx_t_ = std::uint64_t;
-    using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, epoch_t_>>;
+    using masked_epoch_t = std::uint16_t;
+    using ctx_idx_t_ = std::uint16_t;
+    using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, masked_epoch_t>>;
 
     template<std::size_t Size>
-    using FullEpochSnapshot_ = std::array<epoch_t_, Size>;
+    using FullEpochSnapshot_ = std::array<masked_epoch_t, Size>;
 
     struct RetiredNode {
       ValType val_;
@@ -93,16 +93,22 @@ namespace SimpleCU::QSBR {
   class QSBRManager : private Utils::EBODeleterStorage<DeleterType> {
   private:
     using DeleterStorage_ = Utils::EBODeleterStorage<DeleterType>;
-    using epoch_t_ = std::uint8_t;
+
+    using epoch_t_ = std::uint32_t;
+    using masked_epoch_t = std::uint16_t;
+    using ctx_idx_t_ = std::uint16_t;
+    using mgr_idx_t_ = std::uint64_t;
+
     using Epoch_ = std::atomic<epoch_t_>;
     using RetiredContext_ = Details::RetiredContext<ValType, DeleterType>;
     using QSBRContext_ = Utils::Aligned<std::pair<Epoch_, RetiredContext_>>;
-    using ctx_idx_t_ = std::uint64_t;
-    using mgr_idx_t_ = std::uint64_t;
-    using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, epoch_t_>>;
+
+    using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, masked_epoch_t>>;
 
     template<std::size_t Size>
-    using FullEpochSnapshot_ = std::array<epoch_t_, Size>;
+    using FullEpochSnapshot_ = std::array<masked_epoch_t, Size>;
+
+    constexpr static std::uint64_t epoch_mask{(1ull << 16) - 1};
 
     /**
      * `Epoch_` 和 `RetiredContext_` 共用 Cacheline .
@@ -146,7 +152,8 @@ namespace SimpleCU::QSBR {
       CriticalEpochSnapshot_ snapshot{};
       snapshot.reserve(ThreadCnt / 2);
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
-        epoch_t_ epoch_i{(*ctxs_)[i].first.load(std::memory_order_acquire)};
+        masked_epoch_t epoch_i{
+            static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask)};
         if (is_critical_epoch(epoch_i)) {
           snapshot.emplace_back(std::make_pair(i, epoch_i));
         }
@@ -159,7 +166,7 @@ namespace SimpleCU::QSBR {
       ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       FullEpochSnapshot_<ThreadCnt> snapshot{};
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
-        snapshot[i] = (*ctxs_)[i].first.load(std::memory_order_acquire);
+        snapshot[i] = static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask);
       }
       return snapshot;
     }
@@ -173,6 +180,9 @@ namespace SimpleCU::QSBR {
     QSBRManager()
         : ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
           mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+        (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
+      }
     }
 
     /**
@@ -184,6 +194,9 @@ namespace SimpleCU::QSBR {
     QSBRManager(DeleterType_ &&deleter)
         : DeleterStorage_{deleter}, ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
           mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+        (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
+      }
     }
 
     QSBRManager(const QSBRManager &) = delete;
