@@ -5,7 +5,7 @@
 namespace SimpleCU::QSBR::Details {
 
   template<typename ValType, typename DeleterType>
-  class RetiredContext : private Utils::EBODeleterStorage<DeleterType> {
+  class RetiredContext {
   private:
     using epoch_t_ = std::uint8_t;
     using ctx_idx_t_ = std::uint64_t;
@@ -23,17 +23,13 @@ namespace SimpleCU::QSBR::Details {
     RetiredNode *retired_{};
     std::atomic<std::uint64_t> cnt_{};
 
-    void delete_val(ValType &&val_) {
-      this->get_deleter()(std::move(val_));
-    }
-
   public:
     RetiredContext() = default;
     ~RetiredContext() {
       RetiredNode *old_retired{retired_};
       while (old_retired) {
         RetiredNode *next{old_retired->next_};
-        delete_val(std::move(old_retired->val_));
+        // delete_val(std::move(old_retired->val_));
         delete old_retired;
         old_retired = next;
       }
@@ -53,8 +49,8 @@ namespace SimpleCU::QSBR::Details {
       cnt_.fetch_add(1, std::memory_order_relaxed);
     }
 
-    template<std::size_t Size>
-    void reclaim(const FullEpochSnapshot_<Size> &latest_snapshot) {
+    template<std::size_t Size, typename DeleterType_ = DeleterType>
+    void reclaim(const FullEpochSnapshot_<Size> &latest_snapshot, DeleterType_ &&deleter) {
       RetiredNode *old_retired{retired_};
       std::uint64_t unsafe_cnt{};
       retired_ = nullptr;
@@ -73,7 +69,7 @@ namespace SimpleCU::QSBR::Details {
           retired_ = old_retired;
           unsafe_cnt++;
         } else {
-          delete_val(std::move(old_retired->val_));
+          deleter(std::move(old_retired->val_));
           delete old_retired;
         }
         old_retired = next;
@@ -94,8 +90,9 @@ namespace SimpleCU::QSBR {
    * @tparam DeleterType 自定义 deleter.
    */
   template<std::size_t ThreadCnt, typename ValType, typename DeleterType = Utils::DefaultDeleter<ValType>>
-  class QSBRManager {
+  class QSBRManager : private Utils::EBODeleterStorage<DeleterType> {
   private:
+    using DeleterStorage_ = Utils::EBODeleterStorage<DeleterType>;
     using epoch_t_ = std::uint8_t;
     using Epoch_ = std::atomic<epoch_t_>;
     using RetiredContext_ = Details::RetiredContext<ValType, DeleterType>;
@@ -178,6 +175,17 @@ namespace SimpleCU::QSBR {
           mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
     }
 
+    /**
+     * 如果 `DeleterType_` 的 `operator()` 是非 `const` 的, 则无法使用 `const T&` 的形参, 而是要 `T&` (STL 也如此).
+     * 使用转发引用能很好处理 `const` 和左右值.
+     */
+    template<typename DeleterType_ = DeleterType,
+             typename Requires = std::enable_if_t<std::is_same_v<std::remove_reference_t<DeleterType_>, DeleterType>>>
+    QSBRManager(DeleterType_ &&deleter)
+        : DeleterStorage_{deleter}, ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
+          mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
+    }
+
     QSBRManager(const QSBRManager &) = delete;
     auto operator=(const QSBRManager &) -> QSBRManager & = delete;
     QSBRManager(QSBRManager &&) = delete;
@@ -247,7 +255,45 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.reclaim(snapshot_full_epochs());
+      retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+    }
+  };
+
+  /**
+   * RAII Guard.
+   */
+  template<std::size_t ThreadCnt, typename ValType, typename DeleterType>
+  class QSBRGuard {
+  private:
+    using QSBRManager_ = QSBRManager<ThreadCnt, ValType, DeleterType>;
+    QSBRManager_ *mgr_;
+
+  public:
+    QSBRGuard(QSBRManager_ &mgr) : mgr_{&mgr} {
+      mgr_->enter_critical_zone();
+    }
+    QSBRGuard(const QSBRGuard &) = delete;
+    auto operator=(const QSBRGuard &) -> QSBRGuard & = delete;
+
+    QSBRGuard(QSBRGuard &&that) noexcept {
+      mgr_ = that.mgr_;
+      that.mgr_ = nullptr;
+    }
+
+    auto operator=(QSBRGuard &&that) noexcept -> QSBRGuard & {
+      if (&this == that) return *this;
+      if (mgr_) {
+        mgr_->exit_critical_zone();
+      }
+      mgr_ = that.mgr_;
+      that = nullptr;
+      return *this;
+    }
+
+    ~QSBRGuard() {
+      if (mgr_) {
+        mgr_->exit_critical_zone();
+      }
     }
   };
 

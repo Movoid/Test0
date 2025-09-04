@@ -44,7 +44,8 @@ namespace SimpleCU::Utils {
     DeleterType deleter_;
 
   public:
-    EBODeleterStorage(const DeleterType &deleter) : deleter_{deleter} {
+    EBODeleterStorage() = default;                                      // 如果非空 DeleterType 能空参构造, 则也允许
+    EBODeleterStorage(const DeleterType &deleter) : deleter_{deleter} { // 使用一个 DeleterType 对象构造
     }
     EBODeleterStorage(const EBODeleterStorage &) = default;
     EBODeleterStorage(EBODeleterStorage &&) = default;
@@ -60,7 +61,9 @@ namespace SimpleCU::Utils {
   template<typename DeleterType>
   class EBODeleterStorage<DeleterType, std::enable_if_t<std::is_empty_v<DeleterType>>> : public DeleterType {
   public:
-    EBODeleterStorage() = default;
+    EBODeleterStorage() = default;                                         // 空的 DeleterType 通常可以空参构造
+    EBODeleterStorage(const DeleterType &deleter) : DeleterType{deleter} { // 也允许使用一个已经构造了的空 DeleterType.
+    }
     EBODeleterStorage(const EBODeleterStorage &) = default;
     EBODeleterStorage(EBODeleterStorage &&) = default;
     auto operator=(const EBODeleterStorage &) -> EBODeleterStorage & = default;
