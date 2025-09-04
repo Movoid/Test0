@@ -7,7 +7,7 @@ namespace SimpleCU::QSBR::Details {
   template<typename ValType, typename DeleterType>
   class RetiredContext : private Utils::EBODeleterStorage<DeleterType> {
   private:
-    using epoch_t_ = std::uint64_t;
+    using epoch_t_ = std::uint8_t;
     using ctx_idx_t_ = std::uint64_t;
     using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, epoch_t_>>;
 
@@ -21,7 +21,7 @@ namespace SimpleCU::QSBR::Details {
     };
 
     RetiredNode *retired_{};
-    Utils::Aligned<std::atomic<std::uint64_t>> cnt_{};
+    std::atomic<std::uint64_t> cnt_{};
 
     void delete_val(ValType &&val_) {
       this->get_deleter()(std::move(val_));
@@ -63,7 +63,7 @@ namespace SimpleCU::QSBR::Details {
         RetiredNode *next{old_retired->next_};
         bool is_unsafe{};
         for (auto &rec : old_retired->critical_snapshot_) {
-          if (latest_snapshot[rec.first] == rec.second) {
+          if (latest_snapshot[rec.first] == rec.second) { // 若 Epoch 为奇数且没变则 unsafe
             is_unsafe = true;
             break;
           }
@@ -89,12 +89,14 @@ namespace SimpleCU::QSBR {
   /**
    * @brief Quiescent-State Based Reclamation.
    *
-   * Comments todo.
+   * @tparam ThreadCnt 最大线程数.
+   * @tparam ValType 受管理的确切类型.
+   * @tparam DeleterType 自定义 deleter.
    */
   template<std::size_t ThreadCnt, typename ValType, typename DeleterType = Utils::DefaultDeleter<ValType>>
   class QSBRManager {
   private:
-    using epoch_t_ = std::uint64_t;
+    using epoch_t_ = std::uint8_t;
     using Epoch_ = std::atomic<epoch_t_>;
     using RetiredContext_ = Details::RetiredContext<ValType, DeleterType>;
     using QSBRContext_ = Utils::Aligned<std::pair<Epoch_, RetiredContext_>>;
@@ -105,6 +107,9 @@ namespace SimpleCU::QSBR {
     template<std::size_t Size>
     using FullEpochSnapshot_ = std::array<epoch_t_, Size>;
 
+    /**
+     * `Epoch_` 和 `RetiredContext_` 共用 Cacheline .
+     */
     std::unique_ptr<std::array<QSBRContext_, ThreadCnt>> ctxs_;
     std::atomic<ctx_idx_t_> next_ctx_idx_{};
 
@@ -116,6 +121,7 @@ namespace SimpleCU::QSBR {
     const mgr_idx_t_ mgr_idx_;
     thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry> tls_map_;
 
+    /** 奇数 Epoch 则此线程位于临界区. */
     auto is_critical_epoch(epoch_t_ epoch) -> bool {
       return epoch % 2 == 1;
     }
@@ -151,6 +157,7 @@ namespace SimpleCU::QSBR {
       return snapshot;
     }
 
+    /** 栈上分配定长的 `FullEpochSnapshot_<ThreadCnt>` 避免 `new` 带来的锁开销. */
     auto snapshot_full_epochs() -> FullEpochSnapshot_<ThreadCnt> {
       ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       FullEpochSnapshot_<ThreadCnt> snapshot{};
@@ -176,10 +183,17 @@ namespace SimpleCU::QSBR {
     QSBRManager(QSBRManager &&) = delete;
     auto operator=(QSBRManager &&) -> QSBRManager & = delete;
 
-    ~QSBRManager() { // 析构 RetiredContext 时会 reclaim.
+    /**
+     * 析构 `RetiredContext_` 成员时会 reclaim.
+     * `QSBRManager` 的生命周期应该晚于所有线程结束.
+     */
+    ~QSBRManager() {
       tls_map_.erase(mgr_idx_);
     }
 
+    /**
+     * 无论是 `enter` 还是 `exit` 都 Epoch++.
+     */
     auto enter_critical_zone() -> bool {
       auto context{get_context()};
       if (!context.has_value()) {
@@ -187,7 +201,9 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      local_epoch.fetch_add(1, std::memory_order_acquire);
+      if (local_epoch.fetch_add(1, std::memory_order_acquire) % 2 == 1) {
+        return false;
+      }
       return true;
     }
 
@@ -198,7 +214,9 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      local_epoch.fetch_add(1, std::memory_order_release);
+      if (local_epoch.fetch_add(1, std::memory_order_release) % 2 == 0) {
+        return false;
+      }
       return true;
     }
 

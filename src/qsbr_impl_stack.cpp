@@ -76,7 +76,7 @@ public:
 
     ValType ret{std::move(old_head->val_)};
     qsbr_mgr_.retire(std::move(old_head));
-    if (qsbr_mgr_.get_retired_cnt_local() > 64) {
+    if (qsbr_mgr_.get_retired_cnt_local() > 32) {
       qsbr_mgr_.reclaim_local();
     }
 
