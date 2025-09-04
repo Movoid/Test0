@@ -127,7 +127,7 @@ namespace SimpleCU::QSBR {
 
     /** 奇数 Epoch 则此线程位于临界区. */
     auto is_critical_epoch(epoch_t_ epoch) -> bool {
-      return epoch % 2 == 1;
+      return (epoch & 1) == 1;
     }
 
     auto get_context() -> std::optional<LocalEntry> {
@@ -151,7 +151,7 @@ namespace SimpleCU::QSBR {
     auto snapshot_critical_epochs() -> CriticalEpochSnapshot_ {
       ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       CriticalEpochSnapshot_ snapshot{};
-      snapshot.reserve(ThreadCnt / 2);
+      snapshot.reserve(end_idx / 2);
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
         masked_epoch_t epoch_i{
             static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask)};
@@ -223,7 +223,7 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      if (local_epoch.fetch_add(1, std::memory_order_acquire) % 2 == 1) {
+      if ((local_epoch.fetch_add(1, std::memory_order_acquire) & 1ull) == 1) {
         return false;
       }
       return true;
@@ -236,7 +236,7 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      if (local_epoch.fetch_add(1, std::memory_order_release) % 2 == 0) {
+      if ((local_epoch.fetch_add(1, std::memory_order_release) & 1ull) == 0) {
         return false;
       }
       return true;
