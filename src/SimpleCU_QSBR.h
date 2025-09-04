@@ -69,7 +69,7 @@ namespace SimpleCU::QSBR::Details {
           retired_ = old_retired;
           unsafe_cnt++;
         } else {
-          deleter(std::move(old_retired->val_));
+          std::forward<DeleterType_>(deleter)(std::move(old_retired->val_));
           delete old_retired;
         }
         old_retired = next;
@@ -193,7 +193,8 @@ namespace SimpleCU::QSBR {
     template<typename DeleterType_ = DeleterType,
              typename Requires_ = std::enable_if_t<std::is_same_v<std::remove_reference_t<DeleterType_>, DeleterType>>>
     QSBRManager(DeleterType_ &&deleter)
-        : DeleterStorage_{deleter}, ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
+        : DeleterStorage_{std::forward<DeleterType_>(deleter)},
+          ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
           mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
       for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
         (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
