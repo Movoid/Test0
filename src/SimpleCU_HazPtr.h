@@ -104,6 +104,7 @@ namespace SimpleCU::HazPtr {
    * @brief Hazard Pointer Manager.
    *
    * 含自动注册上下文.
+   * 此实现暂时废弃, QSBR 使用更优化的实现.
    *
    * @tparam ValType 元素类型.
    * @tparam ThreadCnt 需要记录 Hazard Pointer 的线程总数.

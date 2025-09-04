@@ -177,7 +177,7 @@ public:
   }
 };
 
-#define VALTAG_SCALE 1000000u
+#define VALTAG_SCALE 5000000u
 
 void lockfree_stack_test() {
   std::vector<int> valtag(VALTAG_SCALE, 0);

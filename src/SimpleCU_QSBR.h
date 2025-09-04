@@ -92,6 +92,7 @@ namespace SimpleCU::QSBR {
   template<std::size_t ThreadCnt, typename ValType, typename DeleterType = Utils::DefaultDeleter<ValType>>
   class QSBRManager : private Utils::EBODeleterStorage<DeleterType> {
   private:
+    static_assert(ThreadCnt <= std::numeric_limits<std::uint16_t>::max(), "Too much threads.");
     using DeleterStorage_ = Utils::EBODeleterStorage<DeleterType>;
 
     using epoch_t_ = std::uint32_t;
@@ -190,7 +191,7 @@ namespace SimpleCU::QSBR {
      * 使用转发引用能很好处理 `const` 和左右值.
      */
     template<typename DeleterType_ = DeleterType,
-             typename Requires = std::enable_if_t<std::is_same_v<std::remove_reference_t<DeleterType_>, DeleterType>>>
+             typename Requires_ = std::enable_if_t<std::is_same_v<std::remove_reference_t<DeleterType_>, DeleterType>>>
     QSBRManager(DeleterType_ &&deleter)
         : DeleterStorage_{deleter}, ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
           mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
@@ -294,12 +295,12 @@ namespace SimpleCU::QSBR {
     }
 
     auto operator=(QSBRGuard &&that) noexcept -> QSBRGuard & {
-      if (&this == that) return *this;
+      if (this == &that) return *this;
       if (mgr_) {
         mgr_->exit_critical_zone();
       }
       mgr_ = that.mgr_;
-      that = nullptr;
+      that.mgr_ = nullptr;
       return *this;
     }
 

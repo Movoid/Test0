@@ -22,4 +22,9 @@ int main() {
   m.exit_critical_zone();
 
   m.reclaim_local();
+
+  SimpleCU::QSBR::QSBRGuard guard1{m};
+  SimpleCU::QSBR::QSBRGuard guard2{std::move(guard1)};
+  SimpleCU::QSBR::QSBRGuard guard3{m};
+  guard3 = std::move(guard2);
 }

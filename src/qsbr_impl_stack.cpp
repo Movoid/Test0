@@ -345,12 +345,12 @@ void legacy_normal_stack_test() {
 int main() {
 
   auto beg2{std::chrono::high_resolution_clock::now()};
-  lockfree_stack_test();
+  legacy_lockfree_stack_test();
   auto end2{std::chrono::high_resolution_clock::now()};
   std::cout << end2 - beg2 << std::endl;
 
   auto beg1{std::chrono::high_resolution_clock::now()};
-  normal_stack_test();
+  legacy_normal_stack_test();
   auto end1{std::chrono::high_resolution_clock::now()};
   std::cout << end1 - beg1 << std::endl;
 
