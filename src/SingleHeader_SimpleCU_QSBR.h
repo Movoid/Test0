@@ -1,8 +1,88 @@
 #pragma once
-#include "SimpleCU_Utils.h"
-#include <bits/stdc++.h>
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
-namespace SimpleCU::QSBR::Details {
+namespace simple_cu::utils {
+
+  constexpr static std::size_t ALIGNMENT{std::hardware_constructive_interference_size};
+
+  template<typename ValType, typename Requires = void>
+  struct Aligned {};
+
+  template<typename ValType>
+  struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<std::is_class_v<ValType>>> : public ValType {
+    using ValType::ValType;
+    using ValType::operator=;
+  };
+
+  template<typename ValType>
+  struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<!std::is_class_v<ValType>>> {
+    ValType val_;
+
+    Aligned() = default;
+    explicit constexpr Aligned(const ValType &v) : val_(v) {
+    }
+
+    explicit operator ValType &() {
+      return val_;
+    }
+    explicit operator const ValType &() const {
+      return val_;
+    }
+
+    Aligned &operator=(const ValType &v) {
+      val_ = v;
+      return *this;
+    }
+  };
+
+  template<typename ValType>
+  using DefaultDeleter = std::default_delete<std::remove_pointer_t<ValType>>;
+
+  template<typename DeleterType, typename Requires = void>
+  class EBODeleterStorage {
+  private:
+    DeleterType deleter_;
+
+  public:
+    EBODeleterStorage() = default; // 如果非空 DeleterType 能空参构造, 则也允许
+    explicit EBODeleterStorage(const DeleterType &deleter) : deleter_{deleter} { // 使用一个 DeleterType 对象构造
+    }
+    EBODeleterStorage(const EBODeleterStorage &) = default;
+    EBODeleterStorage(EBODeleterStorage &&) = default;
+    auto operator=(const EBODeleterStorage &) -> EBODeleterStorage & = default;
+    auto operator=(EBODeleterStorage &&) -> EBODeleterStorage & = default;
+    ~EBODeleterStorage() = default;
+
+    auto GetDeleter() -> DeleterType & {
+      return deleter_;
+    }
+  };
+
+  template<typename DeleterType>
+  class EBODeleterStorage<DeleterType, std::enable_if_t<std::is_empty_v<DeleterType>>> : public DeleterType {
+  public:
+    EBODeleterStorage() = default; // 空的 DeleterType 通常可以空参构造
+    explicit EBODeleterStorage(const DeleterType &deleter)
+        : DeleterType{deleter} { // 也允许使用一个已经构造了的空 DeleterType.
+    }
+    EBODeleterStorage(const EBODeleterStorage &) = default;
+    EBODeleterStorage(EBODeleterStorage &&) = default;
+    auto operator=(const EBODeleterStorage &) -> EBODeleterStorage & = default;
+    auto operator=(EBODeleterStorage &&) -> EBODeleterStorage & = default;
+    ~EBODeleterStorage() = default;
+
+    auto GetDeleter() -> DeleterType & {
+      return *this;
+    }
+  };
+} // namespace simple_cu::utils
+
+namespace simple_cu::qsbr::details {
 
   template<typename ValType, typename DeleterType>
   class RetiredContext {
@@ -21,7 +101,7 @@ namespace SimpleCU::QSBR::Details {
     };
 
     RetiredNode *retired_{};
-    std::atomic<std::uint64_t> cnt_{};
+    std::atomic<std::uint64_t> cnt_;
 
   public:
     RetiredContext() = default;
@@ -39,18 +119,18 @@ namespace SimpleCU::QSBR::Details {
     RetiredContext(RetiredContext &&obj) = delete;
     RetiredContext &operator=(RetiredContext &&obj) = delete;
 
-    auto get_cnt() -> std::uint64_t {
+    auto GetCnt() -> std::uint64_t {
       return cnt_.load(std::memory_order_relaxed);
     }
 
-    void retire(ValType &&val, CriticalEpochSnapshot_ &&snapshot) {
+    void Retire(ValType &&val, CriticalEpochSnapshot_ &&snapshot) {
       RetiredNode *new_node{new RetiredNode{std::move(val), std::move(snapshot), retired_}};
       retired_ = new_node;
       cnt_.fetch_add(1, std::memory_order_relaxed);
     }
 
     template<std::size_t Size, typename DeleterType_ = DeleterType>
-    void reclaim(const FullEpochSnapshot_<Size> &latest_snapshot, DeleterType_ &&deleter) {
+    void Reclaim(const FullEpochSnapshot_<Size> &latest_snapshot, DeleterType_ &&deleter) {
       RetiredNode *old_retired{retired_};
       std::uint64_t unsafe_cnt{};
       retired_ = nullptr;
@@ -78,9 +158,9 @@ namespace SimpleCU::QSBR::Details {
     }
   };
 
-}; // namespace SimpleCU::QSBR::Details
+}; // namespace simple_cu::qsbr::details
 
-namespace SimpleCU::QSBR {
+namespace simple_cu::qsbr {
 
   /**
    * @brief Quiescent-State Based Reclamation.
@@ -89,11 +169,11 @@ namespace SimpleCU::QSBR {
    * @tparam ValType 受管理的确切类型.
    * @tparam DeleterType 自定义 deleter.
    */
-  template<std::size_t ThreadCnt, typename ValType, typename DeleterType = Utils::DefaultDeleter<ValType>>
-  class QSBRManager : private Utils::EBODeleterStorage<DeleterType> {
+  template<std::size_t ThreadCnt, typename ValType, typename DeleterType = utils::DefaultDeleter<ValType>>
+  class QSBRManager : private utils::EBODeleterStorage<DeleterType> {
   private:
     static_assert(ThreadCnt <= std::numeric_limits<std::uint16_t>::max(), "Too much threads.");
-    using DeleterStorage_ = Utils::EBODeleterStorage<DeleterType>;
+    using DeleterStorage_ = utils::EBODeleterStorage<DeleterType>;
 
     using epoch_t_ = std::uint32_t;
     using masked_epoch_t = std::uint16_t;
@@ -101,61 +181,61 @@ namespace SimpleCU::QSBR {
     using mgr_idx_t_ = std::uint64_t;
 
     using Epoch_ = std::atomic<epoch_t_>;
-    using RetiredContext_ = Details::RetiredContext<ValType, DeleterType>;
-    using QSBRContext_ = Utils::Aligned<std::pair<Epoch_, RetiredContext_>>;
+    using RetiredContext_ = details::RetiredContext<ValType, DeleterType>;
+    using QSBRContext_ = utils::Aligned<std::pair<Epoch_, RetiredContext_>>;
 
     using CriticalEpochSnapshot_ = std::vector<std::pair<ctx_idx_t_, masked_epoch_t>>;
 
     template<std::size_t Size>
     using FullEpochSnapshot_ = std::array<masked_epoch_t, Size>;
 
-    constexpr static std::uint64_t epoch_mask{(1ull << 16) - 1};
+    constexpr static std::uint64_t EPOCH_MASK{(1ULL << 16) - 1};
 
     /**
      * `Epoch_` 和 `RetiredContext_` 共用 Cacheline .
      */
     std::unique_ptr<std::array<QSBRContext_, ThreadCnt>> ctxs_;
-    std::atomic<ctx_idx_t_> next_ctx_idx_{};
+    std::atomic<ctx_idx_t_> next_ctx_idx_;
 
     struct LocalEntry {
       QSBRContext_ *local_qsbr_ctx_;
     };
 
-    inline static std::atomic<mgr_idx_t_> next_mgr_idx_{};
+    inline static std::atomic<mgr_idx_t_> next_mgr_idx{};
     const mgr_idx_t_ mgr_idx_;
-    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry> tls_map_;
+    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry> tls_map;
 
     /** 奇数 Epoch 则此线程位于临界区. */
-    auto is_critical_epoch(epoch_t_ epoch) -> bool {
+    auto IsCriticalEpoch(epoch_t_ epoch) -> bool {
       return (epoch & 1) == 1;
     }
 
-    auto get_context() -> std::optional<LocalEntry> {
-      auto iter{tls_map_.find(mgr_idx_)};
-      if (iter != tls_map_.end()) {
+    auto GetContext() -> std::optional<LocalEntry> {
+      auto iter{tls_map.find(mgr_idx_)};
+      if (iter != tls_map.end()) {
         return std::make_optional(iter->second);
       }
       // Register this new thread.
-      ctx_idx_t_ cur_ctx_idx_{next_ctx_idx_.load(std::memory_order_relaxed)};
+      ctx_idx_t_ cur_ctx_idx{next_ctx_idx_.load(std::memory_order_relaxed)};
       do {
-        if (cur_ctx_idx_ >= ThreadCnt) {
+        if (cur_ctx_idx >= ThreadCnt) {
           return std::nullopt;
         }
-      } while (!next_ctx_idx_.compare_exchange_weak(cur_ctx_idx_, cur_ctx_idx_ + 1, std::memory_order_release,
+      } while (!next_ctx_idx_.compare_exchange_weak(cur_ctx_idx, cur_ctx_idx + 1, std::memory_order_release,
                                                     std::memory_order_relaxed));
       // Registered.
-      tls_map_[mgr_idx_] = LocalEntry{&(*ctxs_)[cur_ctx_idx_]};
-      return tls_map_[mgr_idx_];
+      tls_map[mgr_idx_] = LocalEntry{&(*ctxs_)[cur_ctx_idx]};
+      return tls_map[mgr_idx_];
     }
 
-    auto snapshot_critical_epochs() -> CriticalEpochSnapshot_ {
+    auto SnapshotCriticalEpochs() -> CriticalEpochSnapshot_ {
       ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       CriticalEpochSnapshot_ snapshot{};
       snapshot.reserve(end_idx / 2);
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
         masked_epoch_t epoch_i{
-            static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask)};
-        if (is_critical_epoch(epoch_i)) {
+            static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & EPOCH_MASK)};
+        if (IsCriticalEpoch(epoch_i)) {
           snapshot.emplace_back(std::make_pair(i, epoch_i));
         }
       }
@@ -163,11 +243,11 @@ namespace SimpleCU::QSBR {
     }
 
     /** 栈上分配定长的 `FullEpochSnapshot_<ThreadCnt>` 避免 `new` 带来的锁开销. */
-    auto snapshot_full_epochs() -> FullEpochSnapshot_<ThreadCnt> {
+    auto SnapshotFullEpochs() -> FullEpochSnapshot_<ThreadCnt> {
       ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       FullEpochSnapshot_<ThreadCnt> snapshot{};
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
-        snapshot[i] = static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask);
+        snapshot[i] = static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & EPOCH_MASK);
       }
       return snapshot;
     }
@@ -180,8 +260,8 @@ namespace SimpleCU::QSBR {
      */
     QSBRManager()
         : ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
-          mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+          mgr_idx_{next_mgr_idx.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
       }
     }
@@ -192,11 +272,11 @@ namespace SimpleCU::QSBR {
      */
     template<typename DeleterType_ = DeleterType,
              typename Requires_ = std::enable_if_t<std::is_same_v<std::decay_t<DeleterType_>, DeleterType>>>
-    QSBRManager(DeleterType_ &&deleter)
+    explicit QSBRManager(DeleterType_ &&deleter)
         : DeleterStorage_{std::forward<DeleterType_>(deleter)},
           ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
-          mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+          mgr_idx_{next_mgr_idx.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
       }
     }
@@ -211,70 +291,64 @@ namespace SimpleCU::QSBR {
      * `QSBRManager` 的生命周期应该晚于所有线程结束.
      */
     ~QSBRManager() {
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
-        retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+        retired_ctx.Reclaim(SnapshotFullEpochs(), this->GetDeleter());
       }
-      tls_map_.erase(mgr_idx_);
+      tls_map.erase(mgr_idx_);
     }
 
     /**
      * 无论是 `enter` 还是 `exit` 都 Epoch++.
      */
-    auto enter_critical_zone() -> bool {
-      auto context{get_context()};
+    auto EnterCriticalZone() -> bool {
+      auto context{GetContext()};
       if (!context.has_value()) {
         return false;
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      if ((local_epoch.fetch_add(1, std::memory_order_acquire) & 1ull) == 1) {
-        return false;
-      }
-      return true;
+      return (local_epoch.fetch_add(1, std::memory_order_acquire) & 1ULL) != 1;
     }
 
-    auto exit_critical_zone() -> bool {
-      auto context{get_context()};
+    auto ExitCriticalZone() -> bool {
+      auto context{GetContext()};
       if (!context.has_value()) {
         return false;
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      if ((local_epoch.fetch_add(1, std::memory_order_release) & 1ull) == 0) {
-        return false;
-      }
-      return true;
+      return (local_epoch.fetch_add(1, std::memory_order_release) & 1ULL) != 0;
     }
 
-    auto get_retired_cnt_local() -> std::uint64_t {
-      auto context{get_context()};
+    auto GetRetiredCntLocal() -> std::uint64_t {
+      auto context{GetContext()};
       if (!context.has_value()) {
         return 0;
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      return retired_ctx.get_cnt();
+      return retired_ctx.GetCnt();
     }
 
-    void retire(ValType &&val) {
-      auto context{get_context()};
+    void Retire(ValType &&val) {
+      auto context{GetContext()};
       if (!context.has_value()) {
         return;
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.retire(std::move(val), snapshot_critical_epochs());
+      retired_ctx.Retire(std::move(val), SnapshotCriticalEpochs());
     }
 
-    void reclaim_local() {
-      auto context{get_context()};
+    void ReclaimLocal() {
+      auto context{GetContext()};
       if (!context.has_value()) {
         return;
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+      retired_ctx.Reclaim(SnapshotFullEpochs(), this->GetDeleter());
     }
   };
 
@@ -288,8 +362,8 @@ namespace SimpleCU::QSBR {
     QSBRManager_ *mgr_;
 
   public:
-    QSBRGuard(QSBRManager_ &mgr) : mgr_{&mgr} {
-      mgr_->enter_critical_zone();
+    explicit QSBRGuard(QSBRManager_ &mgr) : mgr_{&mgr} {
+      mgr_->EnterCriticalZone();
     }
     QSBRGuard(const QSBRGuard &) = delete;
     auto operator=(const QSBRGuard &) -> QSBRGuard & = delete;
@@ -300,9 +374,11 @@ namespace SimpleCU::QSBR {
     }
 
     auto operator=(QSBRGuard &&that) noexcept -> QSBRGuard & {
-      if (this == &that) return *this;
+      if (this == &that) {
+        return *this;
+      }
       if (mgr_) {
-        mgr_->exit_critical_zone();
+        mgr_->ExitCriticalZone();
       }
       mgr_ = that.mgr_;
       that.mgr_ = nullptr;
@@ -311,9 +387,9 @@ namespace SimpleCU::QSBR {
 
     ~QSBRGuard() {
       if (mgr_) {
-        mgr_->exit_critical_zone();
+        mgr_->ExitCriticalZone();
       }
     }
   };
 
-} // namespace SimpleCU::QSBR
+} // namespace simple_cu::qsbr

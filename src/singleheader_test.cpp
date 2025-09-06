@@ -1,5 +1,4 @@
-#include "SimpleCU_QSBR.h"
-// #include "SingleHeader_SimpleCU_QSBR.h"
+#include "SingleHeader_SimpleCU_QSBR.h"
 #include <bits/stdc++.h>
 #include <boost/lockfree/stack.hpp>
 
@@ -14,7 +13,7 @@ private:
   };
   std::atomic<Node *> head_;
   // SimpleCU::HazPtr::HazPtrManager<Node, 20, 1> hazptr_manager_;
-  SimpleCU::QSBR::QSBRManager<20, Node *> qsbr_mgr_;
+  simple_cu::qsbr::QSBRManager<20, Node *> qsbr_mgr_;
 
 public:
   void push(const ValType &val) {
@@ -66,21 +65,21 @@ public:
   auto pop() -> std::optional<ValType> {
 
     Node *old_head{};
-    qsbr_mgr_.enter_critical_zone();
+    qsbr_mgr_.EnterCriticalZone();
     old_head = head_.load(std::memory_order_acquire);
     do {
     } while (old_head && !head_.compare_exchange_weak(old_head, old_head->next_, std::memory_order_acquire,
                                                       std::memory_order_acquire));
-    qsbr_mgr_.exit_critical_zone();
+    qsbr_mgr_.ExitCriticalZone();
 
     if (!old_head) {
       return std::nullopt;
     }
 
     ValType ret{std::move(old_head->val_)};
-    qsbr_mgr_.retire(std::move(old_head));
-    if (qsbr_mgr_.get_retired_cnt_local() > 32) {
-      qsbr_mgr_.reclaim_local();
+    qsbr_mgr_.Retire(std::move(old_head));
+    if (qsbr_mgr_.GetRetiredCntLocal() > 32) {
+      qsbr_mgr_.ReclaimLocal();
     }
 
     return std::make_optional(std::move(ret));

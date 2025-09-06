@@ -5,7 +5,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# git submodule 比 FetchContent 好用.
+
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lib)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
 
 file(GLOB_RECURSE test0_CXX_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 file(GLOB_RECURSE test0_C_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
