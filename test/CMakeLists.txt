@@ -12,5 +12,4 @@ target_link_libraries(
 include(GoogleTest)
 gtest_discover_tests(hello_test)
 
-message("This is CMakeLists.txt in samples, my current path is " ${CMAKE_CURRENT_SOURCE_DIR})
-message("This is CMakeLists.txt in samples, my pwd is " ${})
+message("This is CMakeLists.txt in test, my current path is " ${CMAKE_CURRENT_SOURCE_DIR})

@@ -5,6 +5,10 @@ namespace SimpleCU::Utils {
 
   constexpr static std::size_t ALIGNMENT{std::hardware_constructive_interference_size};
 
+  /**
+   * WARNING: Never use this class with polymorphism.
+   * The base class may not have a `virtual` destructor.
+   */
   template<typename ValType, typename Requires = void>
   struct Aligned {};
 
@@ -12,26 +16,28 @@ namespace SimpleCU::Utils {
   struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<std::is_class_v<ValType>>> : public ValType {
     using ValType::ValType;
     using ValType::operator=;
+
+    template<typename ValType_,
+             typename Requires_ = std::enable_if_t<std::is_same_v<std::decay_t<ValType>, std::decay_t<ValType_>>>>
+    Aligned(ValType_ &&that) : ValType(std::forward<ValType_>(that)) {
+    }
   };
 
   template<typename ValType>
   struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<!std::is_class_v<ValType>>> {
     ValType val_;
 
-    Aligned() = default;
-    constexpr Aligned(const ValType &v) : val_(v) {
+    explicit Aligned(const ValType &v) : val_(v) {
     }
-
+    Aligned &operator=(const ValType &v) {
+      val_ = v;
+      return *this;
+    }
     operator ValType &() {
       return val_;
     }
     operator const ValType &() const {
       return val_;
-    }
-
-    Aligned &operator=(const ValType &v) {
-      val_ = v;
-      return *this;
     }
   };
 

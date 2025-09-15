@@ -35,6 +35,8 @@ target_include_directories(qsbr PUBLIC src/)
 add_executable(qsbr_test src/qsbr_impl_stack.cpp)
 target_include_directories(qsbr PUBLIC src/)
 
+add_executable(temp_test src/test.cpp)# add_executable(temp_test2 src/test2.cpp)
+
 
 include(GNUInstallDirs)
 
