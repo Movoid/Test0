@@ -27,12 +27,11 @@ namespace SimpleCU::QSBR::Details {
     RetiredContext() = default;
     ~RetiredContext() {
       RetiredNode *old_retired{retired_};
-      while (old_retired) {
-        RetiredNode *next{old_retired->next_};
-        // delete_val(std::move(old_retired->val_));
-        delete old_retired;
-        old_retired = next;
-      }
+      /**
+       * Refuse to destroy.
+       * This should be an error.
+       */
+      assert((old_retired == nullptr) && "Detected alive active thread.");
     }
     RetiredContext(const RetiredContext &obj) = delete;
     RetiredContext &operator=(const RetiredContext &obj) = delete;
@@ -92,7 +91,7 @@ namespace SimpleCU::QSBR {
   template<std::size_t ThreadCnt, typename ValType, typename DeleterType = Utils::DefaultDeleter<ValType>>
   class QSBRManager : private Utils::EBODeleterStorage<DeleterType> {
   private:
-    static_assert(ThreadCnt <= std::numeric_limits<std::uint16_t>::max(), "Too much threads.");
+    static_assert(ThreadCnt <= std::numeric_limits<std::uint16_t>::max(), "Too many threads.");
     using DeleterStorage_ = Utils::EBODeleterStorage<DeleterType>;
 
     using epoch_t_ = std::uint32_t;
@@ -109,6 +108,24 @@ namespace SimpleCU::QSBR {
     template<std::size_t Size>
     using FullEpochSnapshot_ = std::array<masked_epoch_t, Size>;
 
+    struct LocalEntry_ {
+      QSBRContext_ *local_qsbr_ctx_;
+    };
+
+    struct CallbackContext_ {
+      std::vector<std::function<void()>> callbacks_;
+      ~CallbackContext_() {
+        while (!callbacks_.empty()) {
+          callbacks_.back()();
+          callbacks_.pop_back();
+        }
+      }
+    };
+
+    struct QSBRLifetimeControlBlock_ {
+      std::atomic<bool> alive_{true};
+    };
+
     constexpr static std::uint64_t epoch_mask{(1ull << 16) - 1};
 
     /**
@@ -117,34 +134,62 @@ namespace SimpleCU::QSBR {
     std::unique_ptr<std::array<QSBRContext_, ThreadCnt>> ctxs_;
     std::atomic<ctx_idx_t_> next_ctx_idx_{};
 
-    struct LocalEntry {
-      QSBRContext_ *local_qsbr_ctx_;
-    };
-
     inline static std::atomic<mgr_idx_t_> next_mgr_idx_{};
     const mgr_idx_t_ mgr_idx_;
-    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry> tls_map_;
+    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry_> tls_map_;
+
+    /**
+     * 线程结束的回调机制, 用于清理残余的所有资源.
+     * 非 Thread-Safe.
+     * 注意定义顺序决定析构顺序.
+     */
+    std::shared_ptr<QSBRLifetimeControlBlock_> ctrl_{std::make_shared<QSBRLifetimeControlBlock_>()};
+    std::atomic<ctx_idx_t_> active_thread_cnt_{};
+    std::shared_mutex register_mtx_;
+    thread_local inline static CallbackContext_ callback_on_thread_exit_;
 
     /** 奇数 Epoch 则此线程位于临界区. */
     auto is_critical_epoch(epoch_t_ epoch) -> bool {
       return (epoch & 1) == 1;
     }
 
-    auto get_context() -> std::optional<LocalEntry> {
+    auto get_context() -> std::optional<LocalEntry_> {
       auto iter{tls_map_.find(mgr_idx_)};
       if (iter != tls_map_.end()) {
         return std::make_optional(iter->second);
       }
       // Register this new thread.
       ctx_idx_t_ cur_ctx_idx_{next_ctx_idx_.load(std::memory_order_relaxed)};
-      do {
-        if (cur_ctx_idx_ >= ThreadCnt) {
-          return std::nullopt;
-        }
-      } while (!next_ctx_idx_.compare_exchange_weak(cur_ctx_idx_, cur_ctx_idx_ + 1, std::memory_order_release,
-                                                    std::memory_order_relaxed));
+      {
+        std::shared_lock<std::shared_mutex> register_lk{register_mtx_};
+        do {
+          if (cur_ctx_idx_ >= ThreadCnt) {
+            return std::nullopt;
+          }
+        } while (!next_ctx_idx_.compare_exchange_weak(cur_ctx_idx_, cur_ctx_idx_ + 1, std::memory_order_release,
+                                                      std::memory_order_relaxed));
+        active_thread_cnt_.fetch_add(1, std::memory_order_release); // With lock.
+      }
       // Registered.
-      tls_map_[mgr_idx_] = LocalEntry{&(*ctxs_)[cur_ctx_idx_]};
+      tls_map_[mgr_idx_] = LocalEntry_{&(*ctxs_)[cur_ctx_idx_]};
+
+      // Register callback for this QSBR instance.
+      callback_on_thread_exit_.callbacks_.emplace_back(
+          [this, weak = std::weak_ptr<QSBRLifetimeControlBlock_>{ctrl_}]() {
+            std::println("Called callback.");
+            if (auto ptr = weak.lock(); !ptr || !ptr->alive_.load(std::memory_order_acquire)) {
+              std::println("Detected unalive manager.");
+              return;
+            }
+            this->reclaim_local();
+            {
+              std::unique_lock<std::shared_mutex> register_lk{this->register_mtx_};
+              if (this->active_thread_cnt_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                this->reclaim_global_unsafe();
+              }
+            }
+          });
+
       return tls_map_[mgr_idx_];
     }
 
@@ -208,13 +253,15 @@ namespace SimpleCU::QSBR {
 
     /**
      * 析构 `RetiredContext_` 成员时会 reclaim.
-     * `QSBRManager` 的生命周期应该晚于所有线程结束.
+     * `QSBRManager` 的生命周期必须晚于所有 worker 线程结束.
      */
     ~QSBRManager() {
+      ctrl_->alive_.store(false, std::memory_order_release);
       for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
         RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
         retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
       }
+      assert((get_retired_cnt_local() == 0) && "Detected alive active thread.");
       tls_map_.erase(mgr_idx_);
     }
 
@@ -275,6 +322,14 @@ namespace SimpleCU::QSBR {
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
       retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+    }
+
+    void reclaim_global_unsafe() {
+      ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
+      for (ctx_idx_t_ i = 0; i < end_idx; i++) {
+        RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
+        retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+      }
     }
   };
 

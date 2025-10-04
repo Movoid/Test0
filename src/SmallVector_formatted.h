@@ -57,7 +57,8 @@ namespace meow_utils {
       using iterator_category = std::random_access_iterator_tag;
 
       IteratorImpl() noexcept = default;
-      explicit IteratorImpl(const pointer &ptr) noexcept : ptr_{ptr} {
+      // No `explicit`.
+      IteratorImpl(const pointer &ptr) noexcept : ptr_{ptr} { // NOLINT
       }
 
       IteratorImpl(const IteratorImpl &) noexcept = default;
@@ -67,11 +68,12 @@ namespace meow_utils {
       ~IteratorImpl() noexcept = default;
 
       template<bool IsConst_>
-      friend class Iterator_;
+      friend class IteratorImpl;
 
-      template<bool IsConst_,
-               typename Requires_ = std::enable_if_t<!std::is_base_of_v<IteratorImpl, IteratorImpl<IsConst_>>>>
-      explicit IteratorImpl(const IteratorImpl<IsConst_> &that) noexcept : ptr_{that.ptr_} {
+      // No `explicit`.
+      template<bool IsConst_, typename Requires_ = std::enable_if_t<
+                                  !IsConst_ && !std::is_base_of_v<IteratorImpl, IteratorImpl<IsConst_>>>>
+      IteratorImpl(const IteratorImpl<IsConst_> &that) noexcept : ptr_{that.ptr_} { // NOLINT
       }
 
       auto operator*() const noexcept -> const ValType & {

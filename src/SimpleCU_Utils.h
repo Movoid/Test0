@@ -17,9 +17,8 @@ namespace SimpleCU::Utils {
     using ValType::ValType;
     using ValType::operator=;
 
-    template<typename ValType_,
-             typename Requires_ = std::enable_if_t<std::is_same_v<std::decay_t<ValType>, std::decay_t<ValType_>>>>
-    Aligned(ValType_ &&that) : ValType(std::forward<ValType_>(that)) {
+    template<typename ValType_, typename Requires_ = std::enable_if_t<std::is_constructible_v<ValType, ValType_>>>
+    explicit Aligned(ValType_ &&that) : ValType(std::forward<ValType_>(that)) {
     }
   };
 
@@ -27,9 +26,12 @@ namespace SimpleCU::Utils {
   struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<!std::is_class_v<ValType>>> {
     ValType val_;
 
-    explicit Aligned(const ValType &v) : val_(v) {
+    Aligned() : val_{} {
     }
-    Aligned &operator=(const ValType &v) {
+    template<typename ValType_, typename Requires_ = std::enable_if_t<std::is_constructible_v<ValType, ValType_>>>
+    explicit Aligned(ValType_ &&that) : ValType(std::forward<ValType_>(that)) {
+    }
+    auto operator=(const ValType &v) -> Aligned & {
       val_ = v;
       return *this;
     }

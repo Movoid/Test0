@@ -1,4 +1,4 @@
-#include "SmallVector_formatted.h"
+#include "SmallVector_alpha.h"
 #include <bits/stdc++.h>
 using namespace std;
 
@@ -86,12 +86,12 @@ void smallvec_test() {
   long long sum = 0;
 
   for (int i = 0; i < OUTER; ++i) {
-    meow_utils::SmallVector<int, INNER> arr{};
+    MeowUtils::SmallVector<int, INNER> arr{};
     for (int j = 0; j < INNER; ++j) {
       // arr.insert(arr.end(), i + j * j);
-      arr.EmplaceBack(i + j * j);
+      arr.emplace_back(i + j * j);
       // sum += *(arr.end() - 1);
-      sum += arr.Back();
+      sum += arr.back();
     }
   }
 
@@ -154,6 +154,9 @@ int main() {
   // // std::cout << "[array_test] time=" << t2 << " ms\n";
   // // auto t3{time_ms([] { pmr_test(); })};
   // // std::cout << "[pmr_test] time=" << t3 << " ms\n";
-  auto t4{time_ms([] { smallvec_test(); }, 16)};
-  std::cout << "[smallvec_test] time=" << t4 << " ms\n";
+  // auto t4{time_ms([] { smallvec_test(); }, 16)};
+  // std::cout << "[smallvec_test] time=" << t4 << " ms\n";
+
+  std::println("{}", time_ms([] { concurrency_test<MeowUtils::SmallVector<int, 8>>(); }, 1));
+  std::println("{}", time_ms([] { concurrency_test<std::vector<int>>(); }, 1));
 }
