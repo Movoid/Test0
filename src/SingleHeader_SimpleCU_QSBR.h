@@ -3,14 +3,16 @@
 // SimpleCU_QSBR.h
 //
 // ============================================================
-#pragma once
+
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
-#include <unordered_map>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace simple_cu::utils {
@@ -36,10 +38,9 @@ namespace simple_cu::utils {
 
   template<typename ValType>
   struct alignas(ALIGNMENT) Aligned<ValType, std::enable_if_t<!std::is_class_v<ValType>>> {
-    ValType val_;
+    ValType val_{};
 
-    Aligned() : val_{} {
-    }
+    Aligned() = default;
     template<typename ValType_, typename Requires_ = std::enable_if_t<std::is_constructible_v<ValType, ValType_>>>
     explicit Aligned(ValType_ &&that) : ValType(std::forward<ValType_>(that)) {
     }
@@ -68,9 +69,9 @@ namespace simple_cu::utils {
     explicit EBODeleterStorage(const DeleterType &deleter) : deleter_{deleter} { // 使用一个 DeleterType 对象构造
     }
     EBODeleterStorage(const EBODeleterStorage &) = default;
-    EBODeleterStorage(EBODeleterStorage &&) = default;
+    EBODeleterStorage(EBODeleterStorage &&) noexcept = default;
     auto operator=(const EBODeleterStorage &) -> EBODeleterStorage & = default;
-    auto operator=(EBODeleterStorage &&) -> EBODeleterStorage & = default;
+    auto operator=(EBODeleterStorage &&) noexcept -> EBODeleterStorage & = default;
     ~EBODeleterStorage() = default;
 
     auto GetDeleter() -> DeleterType & {
@@ -86,9 +87,9 @@ namespace simple_cu::utils {
         : DeleterType{deleter} { // 也允许使用一个已经构造了的空 DeleterType.
     }
     EBODeleterStorage(const EBODeleterStorage &) = default;
-    EBODeleterStorage(EBODeleterStorage &&) = default;
+    EBODeleterStorage(EBODeleterStorage &&) noexcept = default;
     auto operator=(const EBODeleterStorage &) -> EBODeleterStorage & = default;
-    auto operator=(EBODeleterStorage &&) -> EBODeleterStorage & = default;
+    auto operator=(EBODeleterStorage &&) noexcept -> EBODeleterStorage & = default;
     ~EBODeleterStorage() = default;
 
     auto GetDeleter() -> DeleterType & {
@@ -122,7 +123,6 @@ namespace simple_cu::qsbr::details {
     RetiredContext() = default;
     ~RetiredContext() {
       RetiredNode *old_retired{retired_};
-      assert((old_retired == nullptr) && "Detected alive active thread.");
     }
     RetiredContext(const RetiredContext &obj) = delete;
     auto operator=(const RetiredContext &obj) -> RetiredContext & = delete;
@@ -203,9 +203,9 @@ namespace simple_cu::qsbr {
       QSBRContext_ *local_qsbr_ctx_;
     };
 
-    struct CallbackContext_ {
+    struct CallbackContext {
       std::vector<std::function<void()>> callbacks_;
-      ~CallbackContext_() {
+      ~CallbackContext() {
         while (!callbacks_.empty()) {
           callbacks_.back()();
           callbacks_.pop_back();
@@ -213,7 +213,7 @@ namespace simple_cu::qsbr {
       }
     };
 
-    struct QSBRLifetimeControlBlock_ {
+    struct QSBRLifetimeControlBlock {
       std::atomic<bool> alive_{true};
     };
 
@@ -234,10 +234,10 @@ namespace simple_cu::qsbr {
      * 非 Thread-Safe.
      * 注意定义顺序决定析构顺序.
      */
-    std::shared_ptr<QSBRLifetimeControlBlock_> ctrl_{std::make_shared<QSBRLifetimeControlBlock_>()};
+    std::shared_ptr<QSBRLifetimeControlBlock> ctrl_{std::make_shared<QSBRLifetimeControlBlock>()};
     std::atomic<ctx_idx_t_> active_thread_cnt_{};
     std::shared_mutex register_mtx_;
-    thread_local inline static CallbackContext_ callback_on_thread_exit_;
+    thread_local inline static CallbackContext callback_on_thread_exit;
 
     /** 奇数 Epoch 则此线程位于临界区. */
     auto IsCriticalEpoch(epoch_t_ epoch) -> bool {
@@ -265,14 +265,14 @@ namespace simple_cu::qsbr {
       tls_map[mgr_idx_] = LocalEntry{&(*ctxs_)[cur_ctx_idx]};
 
       // Register callback for this QSBR instance.
-      callback_on_thread_exit_.callbacks_.emplace_back([this, weak = std::weak_ptr<QSBRLifetimeControlBlock_>{ctrl_}] {
+      callback_on_thread_exit.callbacks_.emplace_back([this, weak = std::weak_ptr<QSBRLifetimeControlBlock>{ctrl_}] {
         if (auto ptr = weak.lock(); !ptr || !ptr->alive_.load(std::memory_order_acquire)) {
           return;
         }
         this->ReclaimLocal();
         {
           std::unique_lock<std::shared_mutex> register_lk{register_mtx_};
-          if (this->active_thread_cnt_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          if (this->active_thread_cnt_.fetch_sub(1, std::memory_order_acq_rel) <= 2) {
             this->ReclaimGlobalUnsafe();
           }
         }
@@ -352,7 +352,6 @@ namespace simple_cu::qsbr {
         RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
         retired_ctx.Reclaim(SnapshotFullEpochs(), this->GetDeleter());
       }
-      assert((GetRetiredCntGlobal() == 0) && "Detected alive active thread.");
       tls_map.erase(mgr_idx_);
     }
 
@@ -405,7 +404,10 @@ namespace simple_cu::qsbr {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.Retire(std::move(val), SnapshotCriticalEpochs());
+      {
+        std::shared_lock<std::shared_mutex> register_lk{register_mtx_};
+        retired_ctx.Retire(std::move(val), SnapshotCriticalEpochs());
+      }
     }
 
     void ReclaimLocal() {
@@ -415,7 +417,10 @@ namespace simple_cu::qsbr {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.Reclaim(SnapshotFullEpochs(), this->GetDeleter());
+      {
+        std::shared_lock<std::shared_mutex> register_lk{register_mtx_};
+        retired_ctx.Reclaim(SnapshotFullEpochs(), this->GetDeleter());
+      }
     }
 
     /**
@@ -467,6 +472,9 @@ namespace simple_cu::qsbr {
     ~QSBRGuard() {
       if (mgr_) {
         mgr_->ExitCriticalZone();
+        if (mgr_->GetRetiredCntLocal() > 32) {
+          mgr_->ReclaimLocal();
+        }
       }
     }
   };

@@ -34,9 +34,9 @@ namespace SimpleCU::QSBR::Details {
       assert((old_retired == nullptr) && "Detected alive active thread.");
     }
     RetiredContext(const RetiredContext &obj) = delete;
-    RetiredContext &operator=(const RetiredContext &obj) = delete;
+    auto operator=(const RetiredContext &obj) -> RetiredContext & = delete;
     RetiredContext(RetiredContext &&obj) = delete;
-    RetiredContext &operator=(RetiredContext &&obj) = delete;
+    auto operator=(RetiredContext &&obj) -> RetiredContext & = delete;
 
     auto get_cnt() -> std::uint64_t {
       return cnt_.load(std::memory_order_relaxed);
@@ -126,7 +126,7 @@ namespace SimpleCU::QSBR {
       std::atomic<bool> alive_{true};
     };
 
-    constexpr static std::uint64_t epoch_mask{(1ull << 16) - 1};
+    constexpr static std::uint64_t EPOCH_MASK{(1ULL << 16) - 1};
 
     /**
      * `Epoch_` 和 `RetiredContext_` 共用 Cacheline .
@@ -134,9 +134,9 @@ namespace SimpleCU::QSBR {
     std::unique_ptr<std::array<QSBRContext_, ThreadCnt>> ctxs_;
     std::atomic<ctx_idx_t_> next_ctx_idx_{};
 
-    inline static std::atomic<mgr_idx_t_> next_mgr_idx_{};
+    inline static std::atomic<mgr_idx_t_> next_mgr_idx{};
     const mgr_idx_t_ mgr_idx_;
-    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry_> tls_map_;
+    thread_local inline static std::unordered_map<mgr_idx_t_, LocalEntry_> tls_map;
 
     /**
      * 线程结束的回调机制, 用于清理残余的所有资源.
@@ -154,8 +154,8 @@ namespace SimpleCU::QSBR {
     }
 
     auto get_context() -> std::optional<LocalEntry_> {
-      auto iter{tls_map_.find(mgr_idx_)};
-      if (iter != tls_map_.end()) {
+      auto iter{tls_map.find(mgr_idx_)};
+      if (iter != tls_map.end()) {
         return std::make_optional(iter->second);
       }
       // Register this new thread.
@@ -171,26 +171,25 @@ namespace SimpleCU::QSBR {
         active_thread_cnt_.fetch_add(1, std::memory_order_release); // With lock.
       }
       // Registered.
-      tls_map_[mgr_idx_] = LocalEntry_{&(*ctxs_)[cur_ctx_idx_]};
+      tls_map[mgr_idx_] = LocalEntry_{&(*ctxs_)[cur_ctx_idx_]};
 
       // Register callback for this QSBR instance.
       callback_on_thread_exit_.callbacks_.emplace_back(
           [this, weak = std::weak_ptr<QSBRLifetimeControlBlock_>{ctrl_}]() {
-            std::println("Called callback.");
             if (auto ptr = weak.lock(); !ptr || !ptr->alive_.load(std::memory_order_acquire)) {
-              std::println("Detected unalive manager.");
               return;
             }
             this->reclaim_local();
             {
               std::unique_lock<std::shared_mutex> register_lk{this->register_mtx_};
-              if (this->active_thread_cnt_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+              // 1 owner, 1 worker.
+              if (this->active_thread_cnt_.fetch_sub(1, std::memory_order_acq_rel) <= 2) {
                 this->reclaim_global_unsafe();
               }
             }
           });
 
-      return tls_map_[mgr_idx_];
+      return tls_map[mgr_idx_];
     }
 
     auto snapshot_critical_epochs() -> CriticalEpochSnapshot_ {
@@ -199,7 +198,7 @@ namespace SimpleCU::QSBR {
       snapshot.reserve(end_idx / 2);
       for (ctx_idx_t_ i = 0; i < end_idx; i++) {
         masked_epoch_t epoch_i{
-            static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask)};
+            static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & EPOCH_MASK)};
         if (is_critical_epoch(epoch_i)) {
           snapshot.emplace_back(std::make_pair(i, epoch_i));
         }
@@ -209,10 +208,9 @@ namespace SimpleCU::QSBR {
 
     /** 栈上分配定长的 `FullEpochSnapshot_<ThreadCnt>` 避免 `new` 带来的锁开销. */
     auto snapshot_full_epochs() -> FullEpochSnapshot_<ThreadCnt> {
-      ctx_idx_t_ end_idx{next_ctx_idx_.load(std::memory_order_acquire)};
       FullEpochSnapshot_<ThreadCnt> snapshot{};
-      for (ctx_idx_t_ i = 0; i < end_idx; i++) {
-        snapshot[i] = static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & epoch_mask);
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
+        snapshot[i] = static_cast<masked_epoch_t>((*ctxs_)[i].first.load(std::memory_order_acquire) & EPOCH_MASK);
       }
       return snapshot;
     }
@@ -225,8 +223,8 @@ namespace SimpleCU::QSBR {
      */
     QSBRManager()
         : ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
-          mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+          mgr_idx_{next_mgr_idx.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
       }
     }
@@ -240,8 +238,8 @@ namespace SimpleCU::QSBR {
     QSBRManager(DeleterType_ &&deleter)
         : DeleterStorage_{std::forward<DeleterType_>(deleter)},
           ctxs_{std::make_unique<std::array<QSBRContext_, ThreadCnt>>()},
-          mgr_idx_{next_mgr_idx_.fetch_add(1, std::memory_order_relaxed)} {
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+          mgr_idx_{next_mgr_idx.fetch_add(1, std::memory_order_relaxed)} {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         (*ctxs_)[i].first.store(0, std::memory_order_relaxed);
       }
     }
@@ -257,12 +255,12 @@ namespace SimpleCU::QSBR {
      */
     ~QSBRManager() {
       ctrl_->alive_.store(false, std::memory_order_release);
-      for (ctx_idx_t_ i = 0; i < ThreadCnt; i++) {
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
         RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
         retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
       }
       assert((get_retired_cnt_local() == 0) && "Detected alive active thread.");
-      tls_map_.erase(mgr_idx_);
+      tls_map.erase(mgr_idx_);
     }
 
     /**
@@ -275,7 +273,7 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       Epoch_ &local_epoch{ctx->first};
-      if ((local_epoch.fetch_add(1, std::memory_order_acquire) & 1ull) == 1) {
+      if ((local_epoch.fetch_add(1, std::memory_order_acquire) & 1ULL) == 1) {
         return false;
       }
       return true;
@@ -304,6 +302,15 @@ namespace SimpleCU::QSBR {
       return retired_ctx.get_cnt();
     }
 
+    auto get_retired_cnt_global() -> std::uint64_t {
+      std::uint64_t cnt_sum{};
+      for (ctx_idx_t_ i = 0; i < static_cast<ctx_idx_t_>(ThreadCnt); i++) {
+        RetiredContext_ &retired_ctx{(*ctxs_)[i].second};
+        cnt_sum += retired_ctx.GetCnt();
+      }
+      return cnt_sum;
+    }
+
     void retire(ValType &&val) {
       auto context{get_context()};
       if (!context.has_value()) {
@@ -311,7 +318,10 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.retire(std::move(val), snapshot_critical_epochs());
+      {
+        std::shared_lock<std::shared_mutex> register_lk{register_mtx_};
+        retired_ctx.retire(std::move(val), snapshot_critical_epochs());
+      }
     }
 
     void reclaim_local() {
@@ -321,7 +331,10 @@ namespace SimpleCU::QSBR {
       }
       QSBRContext_ *ctx{context.value().local_qsbr_ctx_};
       RetiredContext_ &retired_ctx{ctx->second};
-      retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+      {
+        std::shared_lock<std::shared_mutex> register_lk{register_mtx_};
+        retired_ctx.reclaim(snapshot_full_epochs(), this->get_deleter());
+      }
     }
 
     void reclaim_global_unsafe() {
@@ -367,6 +380,9 @@ namespace SimpleCU::QSBR {
     ~QSBRGuard() {
       if (mgr_) {
         mgr_->exit_critical_zone();
+        if (mgr_->get_retired_cnt_local() > 32) {
+          mgr_->reclaim_local();
+        }
       }
     }
   };
